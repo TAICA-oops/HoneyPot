@@ -14,6 +14,19 @@ honeypot/
   honeypot.db  SQLite, shared by all layers
 ```
 
+## Commit Convention
+
+Write commit messages in **Traditional Chinese** using the Conventional Commits format:
+
+```
+<type>(<optional scope>): <subject>
+
+<optional body>
+```
+
+Types: `feat` | `fix` | `docs` | `chore` | `refactor` | `test`
+
+
 ## Commands
 
 ```bash
