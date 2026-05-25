@@ -1,49 +1,49 @@
-# LLM-Powered Honeypot
+# LLM 驅動蜜罐系統
 
-A high-interaction honeypot that traps attackers inside a believable fake Linux server and WordPress site, driven by a local LLM. Every command is classified by attack intent, logged to SQLite, and surfaced on a real-time React dashboard with auto-generated threat intelligence reports.
+一個高互動型蜜罐，將攻擊者困在擬真的假 Linux 伺服器和 WordPress 網站中，由本地 LLM 即時生成回應。每個指令都會被分類攻擊意圖、記錄至 SQLite，並在即時 React Dashboard 上呈現，最終自動生成威脅情報報告。
 
 ---
 
-## How It Works
+## 系統架構
 
 ```
-Attacker
+攻擊者
   ├─ SSH :2222 ──┐
   └─ HTTP :8080 ─┤
                  ▼
-         Layer 1 — Honeypot Servers
-         (session state, logging, streaming)
+         Layer 1 — 蜜罐伺服器
+         (Session 狀態管理、日誌記錄、串流回應)
                  │ POST /respond
                  ▼
-         Layer 2 — LLM Engine :8000
-         (rule-based cache → Ollama → intent classifier)
+         Layer 2 — LLM 引擎 :8000
+         (規則快取 → Ollama → 意圖分類器)
                  │ SQLite
                  ▼
          Layer 3 — Dashboard :8001 + Vercel
-         (live feed, stats, threat reports)
+         (即時攻擊串流、統計圖表、威脅報告)
 ```
 
-**SSH persona:** Ubuntu 18.04.6 LTS e-commerce server. Any username/password succeeds. Common commands (ls, cat, pwd) return instantly from a rule-based cache with a fake filesystem containing bait files — `/var/www/html/.env` with fake DB credentials, `/home/admin/backup.sql`, and a misconfigured sudoers file. Unknown commands go to the LLM.
+**SSH 人設：** Ubuntu 18.04.6 LTS 電商後台伺服器。任何帳號密碼都能登入。常見指令（ls、cat、pwd）直接從規則快取秒回，配備完整的假檔案系統——包含假資料庫憑證的 `/var/www/html/.env`、`/home/admin/backup.sql` MySQL dump，以及設定錯誤的 sudoers 等誘餌檔案。陌生指令才送 LLM 生成回應。
 
-**HTTP persona:** Fake WordPress site. Responds to `/wp-admin`, `/wp-login.php` (logs harvested credentials), `/.env` (bait file), `/phpmyadmin`, `/xmlrpc.php`, and all other paths with a styled 404.
+**HTTP 人設：** 假 WordPress 網站。回應 `/wp-admin`、`/wp-login.php`（記錄攻擊者輸入的帳密）、`/.env`（誘餌檔）、`/phpmyadmin`、`/xmlrpc.php`，其他路徑回傳 WordPress 風格的 404。
 
-**Intent classifier:** Keyword-based, classifies commands into `reconnaissance`, `privilege_escalation`, `data_exfiltration`, `persistence`, `lateral_movement`. Fast path handles 80%+ of cases without LLM.
+**意圖分類器：** 關鍵字比對，將指令分為 `reconnaissance`（偵查）、`privilege_escalation`（提權）、`data_exfiltration`（資料外洩）、`persistence`（持久化）、`lateral_movement`（橫向移動）。快速路徑處理 80% 以上的情況，不需呼叫 LLM。
 
-**Reports:** Auto-generated at session end — Executive Summary, Attack Timeline, IoCs, Threat Level (Low/Medium/High/Critical).
+**威脅報告：** Session 結束時自動觸發，包含 Executive Summary、攻擊時間軸、IoC 指標、威脅等級（Low / Medium / High / Critical）。
 
 ---
 
-## Requirements
+## 環境需求
 
 - Python 3.10+
-- [Ollama](https://ollama.ai) running locally or on a remote server
-- Node.js 18+ (for the React dashboard)
+- [Ollama](https://ollama.ai)（本機或遠端皆可）
+- Node.js 18+（React Dashboard 用）
 
 ---
 
-## Quick Start
+## 快速開始
 
-### 1. Install Python dependencies
+### 1. 安裝 Python 套件
 
 ```bash
 cd honeypot
@@ -52,12 +52,12 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure
+### 2. 設定
 
-Edit `honeypot/.env`:
+編輯 `honeypot/.env`：
 
 ```env
-OLLAMA_MODEL=llama3.1        # any model Ollama supports
+OLLAMA_MODEL=llama3.1        # 任何 Ollama 支援的模型
 OLLAMA_HOST=http://localhost:11434
 SSH_PORT=2222
 HTTP_PORT=8080
@@ -67,21 +67,21 @@ DB_PATH=./honeypot.db
 SESSION_TIMEOUT_SECONDS=600
 ```
 
-Pull your chosen model:
+拉取模型：
 ```bash
 ollama pull llama3.1
 ```
 
-### 3. Start all services
+### 3. 啟動所有服務
 
 ```bash
 cd honeypot
 ./scripts/start.sh
 ```
 
-This starts Layer 2 (LLM engine), Layer 3 (stats API), Layer 1 SSH, and Layer 1 HTTP in the background. Press `Ctrl+C` to stop all.
+會依序在背景啟動 Layer 2（LLM 引擎）、Layer 3（Stats API）、Layer 1 SSH、Layer 1 HTTP。按 `Ctrl+C` 全部停止。
 
-### 4. Start the dashboard
+### 4. 啟動 Dashboard
 
 ```bash
 cd honeypot/layer3/frontend
@@ -91,87 +91,85 @@ npm run dev        # http://localhost:5173
 
 ---
 
-## Testing the Honeypot
+## 測試蜜罐
 
-Connect via SSH (any credentials work):
+透過 SSH 連線（任何帳密都能成功）：
 ```bash
 ssh -p 2222 anyuser@localhost
 ```
 
-Scan with HTTP tools:
+HTTP 掃描：
 ```bash
 curl http://localhost:8080/wp-admin
 curl http://localhost:8080/.env
 curl -X POST http://localhost:8080/wp-login.php -d "log=admin&pwd=secret"
 ```
 
-Run the automated demo attack:
+執行自動化 Demo 攻擊腳本：
 ```bash
 ./scripts/demo.sh
 ```
 
 ---
 
-## Dashboard
+## Dashboard 頁面
 
-| Page | Content |
+| 頁面 | 內容 |
 |---|---|
-| Dashboard | Live WebSocket feed of attacker commands, intent distribution chart, session stats |
-| Sessions | Full session list with replay — click any session to see every command and response |
-| Reports | LLM-generated Markdown threat intelligence report per session |
+| Dashboard | WebSocket 即時攻擊串流、意圖分佈圓餅圖、Session 統計 |
+| Sessions | 所有 Session 列表，點入可逐條重播每個指令與 LLM 回應 |
+| Reports | 每個 Session 的 LLM 生成 Markdown 威脅情報報告 |
 
 ---
 
-## Architecture Details
+## 詳細架構
 
-### File Structure
+### 檔案結構
 
 ```
 honeypot/
   layer1/
-    ssh_server.py          # paramiko SSH server
-    http_server.py         # FastAPI WordPress honeypot
-    session_manager.py     # per-session state (current_dir, history)
-    llm_client.py          # HTTP client to Layer 2
-    logger.py              # SQLite writer
+    ssh_server.py          # paramiko SSH 蜜罐
+    http_server.py         # FastAPI WordPress 蜜罐
+    session_manager.py     # Session 狀態（current_dir、history）
+    llm_client.py          # 呼叫 Layer 2 的 HTTP client
+    logger.py              # SQLite 寫入
   layer2/
     main.py                # FastAPI POST /respond
-    cache.py               # rule-based command handler + fake filesystem
-    intent_classifier.py   # keyword-based intent classification
-    prompt_builder.py      # Ubuntu 18.04 system prompt
-    ollama_client.py       # Ollama HTTP client, streaming
-    db.py                  # SQLite schema + connection
+    cache.py               # 規則快取 + 假檔案系統
+    intent_classifier.py   # 關鍵字意圖分類
+    prompt_builder.py      # Ubuntu 18.04 人設 System Prompt
+    ollama_client.py       # Ollama HTTP client，支援串流
+    db.py                  # SQLite Schema + 連線管理
   layer3/
-    stats_api.py           # read-only FastAPI + WebSocket /ws/live
-    report_generator.py    # LLM Markdown report writer
+    stats_api.py           # 唯讀 FastAPI + WebSocket /ws/live
+    report_generator.py    # LLM Markdown 報告生成
     frontend/              # React + Vite → Vercel
-  honeypot.db              # shared SQLite database
-  .env                     # all configuration
+  honeypot.db              # 共用 SQLite 資料庫
+  .env                     # 所有設定
   scripts/
-    start.sh               # start all services locally
-    demo.sh                # simulated attack for demo
+    start.sh               # 本機啟動所有服務
+    demo.sh                # Demo 用模擬攻擊腳本
 ```
 
-### JSON Interface (Layer 1 → Layer 2)
+### Layer 1 → Layer 2 JSON 介面
 
 ```json
-// Request
+// 請求
 { "session_id": "abc123", "protocol": "ssh", "command": "cat /etc/passwd",
   "current_dir": "/etc", "user": "admin", "history": ["whoami", "ls"] }
 
-// Response
-{ "session_id": "abc123", "response": "root:x:0:0...", 
+// 回應
+{ "session_id": "abc123", "response": "root:x:0:0...",
   "intent": "reconnaissance", "confidence": 0.95, "cache_hit": false }
 ```
 
-### Switching Models
+### 切換模型
 
-Change one line in `.env`:
+只需改 `.env` 一行，不需動任何程式碼：
 ```env
-OLLAMA_MODEL=gemma3        # or mistral, phi4, deepseek-r1, etc.
+OLLAMA_MODEL=gemma3        # 或 mistral、phi4、deepseek-r1 等
 ```
-
-No code changes needed.
 
 ---
 
@@ -182,23 +180,23 @@ cd honeypot
 docker compose up
 ```
 
-Note: Ollama must be reachable from containers. Set `OLLAMA_HOST` in `.env` to your host's address (e.g., `http://host.docker.internal:11434` on macOS).
+注意：Ollama 必須讓容器能連到。在 macOS 上請將 `.env` 的 `OLLAMA_HOST` 設為 `http://host.docker.internal:11434`。
 
 ---
 
-## Vercel Deployment (Dashboard)
+## Vercel 部署（Dashboard）
 
-1. Set `OLLAMA_HOST` in `.env` to a publicly reachable URL
-2. Update `layer3/frontend/vercel.json` with your stats API URL
-3. Deploy: `cd layer3/frontend && npx vercel --prod`
+1. 將 `OLLAMA_HOST` 設為可公開存取的 URL
+2. 修改 `layer3/frontend/vercel.json` 填入 Stats API 的網址
+3. 部署：`cd layer3/frontend && npx vercel --prod`
 
 ---
 
-## Running Tests
+## 執行測試
 
 ```bash
 cd honeypot
 .venv/bin/pytest tests/ -v
 ```
 
-34 tests covering SQLite schema, logger, session manager, rule-based cache, intent classifier, prompt builder, FastAPI endpoints, and stats API.
+34 個測試，涵蓋 SQLite Schema、Logger、Session Manager、規則快取、意圖分類器、Prompt Builder、FastAPI 端點、Stats API。
