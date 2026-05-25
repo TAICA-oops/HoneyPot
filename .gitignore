@@ -14,6 +14,9 @@ __pycache__/
 # Environment files (keep .env.example, ignore actual secrets)
 # honeypot/.env  # tracked intentionally for this project
 
+# SSH host key (auto-generated on startup)
+.ssh_host_key
+
 # Database
 *.db
 *.sqlite3
