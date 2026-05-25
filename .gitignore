@@ -23,6 +23,17 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Node
+node_modules/
+dist/
+.vite/
+
+# Python packaging
+*.egg-info/
+
+# Superpowers plugin cache
+.superpowers/
+
 # IDEs
 .DS_Store
 .idea/
