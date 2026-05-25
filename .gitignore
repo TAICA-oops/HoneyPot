@@ -1,0 +1,29 @@
+# Virtual environments
+honeypot/.venv/
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment files (keep .env.example, ignore actual secrets)
+# honeypot/.env  # tracked intentionally for this project
+
+# Database
+*.db
+*.sqlite3
+
+# Pytest cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDEs
+.DS_Store
+.idea/
+.vscode/
