@@ -79,44 +79,48 @@ DB_PATH=./honeypot.db
 SESSION_TIMEOUT_SECONDS=600
 ```
 
-### 4. 啟動所有服務
+### 4. Terminal 1 — 啟動後端所有服務
 
 ```bash
 cd honeypot
 ./scripts/start.sh
 ```
 
-Layer 2（LLM 引擎）、Layer 3（Stats API）、Layer 1 SSH、Layer 1 HTTP 全部在背景啟動。按 `Ctrl+C` 全部停止。
+Layer 2（LLM 引擎）、Layer 3（Stats API）、Layer 1 SSH、Layer 1 HTTP 全部在背景啟動。**這個 terminal 要一直開著**，按 `Ctrl+C` 全部停止。
 
-### 5. 測試蜜罐
-
-在 glows.ai 的 terminal 直接打：
-
+確認服務正常：
 ```bash
-# SSH（任何帳密都能登入）
-ssh -p 2222 anyuser@localhost
-
-# HTTP
-curl http://localhost:8080/wp-admin
-curl http://localhost:8080/.env
-curl -X POST http://localhost:8080/wp-login.php -d "log=admin&pwd=secret"
-
-# 自動化模擬攻擊
-./scripts/demo.sh
+curl http://localhost:8000/health        # 應回傳 {"status":"ok"}
+curl http://localhost:8001/api/sessions  # 應回傳 []
 ```
 
-### 6. Dashboard
+### 5. Terminal 2 — 啟動 Dashboard 前端
 
-glows.ai 提供 Port Forwarding，把 `8001`（Stats API）和 `5173`（前端）forward 出來，在自己電腦的瀏覽器開：
+**開一個新的 terminal**，`start.sh` 那個不要關：
 
 ```bash
-# 在 glows.ai terminal 啟動前端
 cd honeypot/layer3/frontend
-npm install
+npm install   # 第一次才需要
 npm run dev
 ```
 
-接著在 glows.ai 介面的 Port Forwarding 設定加入 port `5173`，瀏覽器開對應的 URL 即可。
+接著在 glows.ai 介面的 Port Forwarding 設定加入 port `5173`，用瀏覽器開對應的 URL。
+
+> Dashboard 的資料來自 Stats API（port 8001）。`start.sh` 沒跑的話，頁面會是空的。
+
+### 6. Terminal 1 — 打蜜罐讓資料進來
+
+服務跑起來後資料庫是空的，Dashboard 不會有任何顯示。在 terminal 1 攻擊一下讓資料進來：
+
+```bash
+# SSH（任何帳密都能登入，亂打都行）
+ssh -p 2222 anyuser@localhost
+
+# 或直接跑自動化 demo 攻擊
+./scripts/demo.sh
+```
+
+攻擊完畢後重新整理 Dashboard，就會看到 Session 紀錄和圖表。
 
 ---
 
@@ -145,28 +149,44 @@ pip install -r requirements.txt
 
 `honeypot/.env` 預設值即可，不需要改。
 
-#### 4. 啟動
+#### 4. Terminal 1 — 啟動後端所有服務
 
 ```bash
 cd honeypot
 ./scripts/start.sh
 ```
 
-#### 5. Dashboard
+**這個 terminal 要一直開著**，按 `Ctrl+C` 全部停止。
+
+確認服務正常：
+```bash
+curl http://localhost:8000/health        # 應回傳 {"status":"ok"}
+curl http://localhost:8001/api/sessions  # 應回傳 []
+```
+
+#### 5. Terminal 2 — 啟動 Dashboard 前端
+
+**開一個新的 terminal**，`start.sh` 那個不要關：
 
 ```bash
 cd honeypot/layer3/frontend
-npm install
+npm install   # 第一次才需要
 npm run dev        # 開啟 http://localhost:5173
 ```
 
-#### 6. 測試蜜罐
+> Dashboard 的資料來自 Stats API（port 8001）。`start.sh` 沒跑的話，頁面會是空的。
+
+#### 6. Terminal 1 — 打蜜罐讓資料進來
+
+服務跑起來後資料庫是空的，Dashboard 不會有任何顯示。在 terminal 1 攻擊一下讓資料進來：
 
 ```bash
 ssh -p 2222 anyuser@localhost      # 任何帳密
 curl http://localhost:8080/wp-admin
 ./scripts/demo.sh                  # 自動化模擬攻擊
 ```
+
+攻擊完畢後重新整理 Dashboard，就會看到 Session 紀錄和圖表。
 
 ---
 
