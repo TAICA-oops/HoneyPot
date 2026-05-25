@@ -35,13 +35,18 @@
 
 ## 環境需求
 
-- Python 3.10+
-- [Ollama](https://ollama.ai)（本機或遠端皆可）
-- Node.js 18+（React Dashboard 用）
+| | glows.ai | 自己電腦 |
+|---|---|---|
+| Python | ✅ 已內建 | 需要 3.10+ |
+| Ollama | ✅ 已在跑 | 需要自行安裝 |
+| Node.js | 僅 Dashboard 需要 | 僅 Dashboard 需要 |
+| Docker | ❌ 不支援 | ✅ 可選用 |
 
 ---
 
-## 快速開始
+## 在 glows.ai 上啟動
+
+glows.ai 上 Ollama 已經在跑，直接用 `start.sh` 即可，**不需要 Docker**。
 
 ### 1. 安裝 Python 套件
 
@@ -52,12 +57,19 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. 設定
+### 2. 確認 Ollama 模型
 
-編輯 `honeypot/.env`：
+```bash
+ollama list                  # 確認有哪些模型
+ollama pull llama3.1         # 沒有的話先拉取
+```
+
+### 3. 設定
+
+編輯 `honeypot/.env`，`OLLAMA_HOST` 保持 localhost：
 
 ```env
-OLLAMA_MODEL=llama3.1        # 任何 Ollama 支援的模型
+OLLAMA_MODEL=llama3.1
 OLLAMA_HOST=http://localhost:11434
 SSH_PORT=2222
 HTTP_PORT=8080
@@ -67,48 +79,113 @@ DB_PATH=./honeypot.db
 SESSION_TIMEOUT_SECONDS=600
 ```
 
-拉取模型：
-```bash
-ollama pull llama3.1
-```
-
-### 3. 啟動所有服務
+### 4. 啟動所有服務
 
 ```bash
 cd honeypot
 ./scripts/start.sh
 ```
 
-會依序在背景啟動 Layer 2（LLM 引擎）、Layer 3（Stats API）、Layer 1 SSH、Layer 1 HTTP。按 `Ctrl+C` 全部停止。
+Layer 2（LLM 引擎）、Layer 3（Stats API）、Layer 1 SSH、Layer 1 HTTP 全部在背景啟動。按 `Ctrl+C` 全部停止。
 
-### 4. 啟動 Dashboard
+### 5. 測試蜜罐
+
+在 glows.ai 的 terminal 直接打：
+
+```bash
+# SSH（任何帳密都能登入）
+ssh -p 2222 anyuser@localhost
+
+# HTTP
+curl http://localhost:8080/wp-admin
+curl http://localhost:8080/.env
+curl -X POST http://localhost:8080/wp-login.php -d "log=admin&pwd=secret"
+
+# 自動化模擬攻擊
+./scripts/demo.sh
+```
+
+### 6. Dashboard
+
+glows.ai 提供 Port Forwarding，把 `8001`（Stats API）和 `5173`（前端）forward 出來，在自己電腦的瀏覽器開：
+
+```bash
+# 在 glows.ai terminal 啟動前端
+cd honeypot/layer3/frontend
+npm install
+npm run dev
+```
+
+接著在 glows.ai 介面的 Port Forwarding 設定加入 port `5173`，瀏覽器開對應的 URL 即可。
+
+---
+
+## 在自己電腦上啟動
+
+### 方法 A：直接用 start.sh
+
+#### 1. 安裝 Ollama
+
+至 [ollama.ai](https://ollama.ai) 下載安裝，然後：
+
+```bash
+ollama pull llama3.1
+```
+
+#### 2. 安裝 Python 套件
+
+```bash
+cd honeypot
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+#### 3. 設定
+
+`honeypot/.env` 預設值即可，不需要改。
+
+#### 4. 啟動
+
+```bash
+cd honeypot
+./scripts/start.sh
+```
+
+#### 5. Dashboard
 
 ```bash
 cd honeypot/layer3/frontend
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # 開啟 http://localhost:5173
+```
+
+#### 6. 測試蜜罐
+
+```bash
+ssh -p 2222 anyuser@localhost      # 任何帳密
+curl http://localhost:8080/wp-admin
+./scripts/demo.sh                  # 自動化模擬攻擊
 ```
 
 ---
 
-## 測試蜜罐
+### 方法 B：Docker（自己電腦才能用）
 
-透過 SSH 連線（任何帳密都能成功）：
-```bash
-ssh -p 2222 anyuser@localhost
+Ollama 需要能讓容器連到。macOS / Windows 上用 `host.docker.internal`：
+
+```env
+# honeypot/.env
+OLLAMA_HOST=http://host.docker.internal:11434
 ```
 
-HTTP 掃描：
+啟動：
 ```bash
-curl http://localhost:8080/wp-admin
-curl http://localhost:8080/.env
-curl -X POST http://localhost:8080/wp-login.php -d "log=admin&pwd=secret"
+cd honeypot
+docker compose up
 ```
 
-執行自動化 Demo 攻擊腳本：
-```bash
-./scripts/demo.sh
-```
+Dashboard 同樣用 `npm run dev` 啟動，打開 http://localhost:5173。
 
 ---
 
@@ -194,9 +271,11 @@ docker compose up
 
 ## 執行測試
 
+glows.ai 和自己電腦都一樣：
+
 ```bash
 cd honeypot
 .venv/bin/pytest tests/ -v
 ```
 
-34 個測試，涵蓋 SQLite Schema、Logger、Session Manager、規則快取、意圖分類器、Prompt Builder、FastAPI 端點、Stats API。
+34 個測試，涵蓋 SQLite Schema、Logger、Session Manager、規則快取、意圖分類器、Prompt Builder、FastAPI 端點、Stats API。不需要 Ollama 在跑，也不需要任何外部服務。
