@@ -32,6 +32,9 @@ Types: `feat` | `fix` | `docs` | `chore` | `refactor` | `test`
 ```bash
 cd honeypot
 
+# 第一次設定（建 venv 後必須跑，否則 import 會失敗）
+pip install -e .
+
 # tests
 .venv/bin/pytest tests/ -v
 
