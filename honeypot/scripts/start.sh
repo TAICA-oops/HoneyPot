@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -e
 cd "$(dirname "$0")/.."
-PYTHON="$(pwd)/../.venv/bin/python"
-UVICORN="$(pwd)/../.venv/bin/uvicorn"
+PYTHON="$(pwd)/.venv/bin/python"
+UVICORN="$(pwd)/.venv/bin/uvicorn"
 
 echo "[*] Starting Layer 2 (LLM Engine)..."
 $UVICORN layer2.main:app --port 8000 --log-level warning &

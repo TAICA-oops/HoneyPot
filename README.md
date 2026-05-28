@@ -46,85 +46,14 @@
 
 ## 在 glows.ai 上啟動
 
-glows.ai 上 Ollama 已經在跑，直接用 `start.sh` 即可，**不需要 Docker**。
-
-### 1. 安裝 Python 套件
+請參閱 **[GLOWS.md](GLOWS.md)**，包含一鍵初始化、tmux 啟動、Port Forwarding 設定等完整說明。
 
 ```bash
-cd honeypot
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# 快速三步驟
+git clone https://github.com/TAICA-oops/HoneyPot.git
+cd HoneyPot/honeypot && bash scripts/setup.sh    # 初始化（含 Ollama 模型）
+bash scripts/start-all.sh                         # 啟動所有服務
 ```
-
-### 2. 確認 Ollama 模型
-
-```bash
-ollama list                                      # 確認有哪些模型
-ollama pull llama3.1:8b-instruct-q8_0            # 終端回應模型（快速，~8.5GB VRAM）
-ollama pull qwen2.5:14b-instruct-q4_K_M          # 報告生成模型（高品質，~9GB VRAM）
-```
-
-### 3. 設定
-
-編輯 `honeypot/.env`，`OLLAMA_HOST` 保持 localhost：
-
-```env
-OLLAMA_MODEL=llama3.1:8b-instruct-q8_0
-OLLAMA_REPORT_MODEL=qwen2.5:14b-instruct-q4_K_M
-OLLAMA_HOST=http://localhost:11434
-SSH_PORT=2222
-HTTP_PORT=8080
-LLM_ENGINE_PORT=8000
-STATS_API_PORT=8001
-DB_PATH=./honeypot.db
-SESSION_TIMEOUT_SECONDS=600
-```
-
-### 4. Terminal 1 — 啟動後端所有服務
-
-```bash
-cd honeypot
-./scripts/start.sh
-```
-
-Layer 2（LLM 引擎）、Layer 3（Stats API）、Layer 1 SSH、Layer 1 HTTP 全部在背景啟動。**這個 terminal 要一直開著**，按 `Ctrl+C` 全部停止。
-
-確認服務正常：
-```bash
-curl http://localhost:8000/health        # 應回傳 {"status":"ok"}
-curl http://localhost:8001/api/sessions  # 應回傳 []
-```
-
-### 5. Terminal 2 — 啟動 Dashboard 前端
-
-**開一個新的 terminal**，`start.sh` 那個不要關：
-
-```bash
-cd honeypot/layer3/frontend
-npm install   # 第一次才需要
-npm run dev
-```
-
-接著在 glows.ai 介面的 Port Forwarding 設定加入 port `5173`，用瀏覽器開對應的 URL。
-
-> Dashboard 的資料來自 Stats API（port 8001）。`start.sh` 沒跑的話，頁面會是空的。
-
-### 6. Terminal 1 — 打蜜罐讓資料進來
-
-服務跑起來後資料庫是空的，Dashboard 不會有任何顯示。在 terminal 1 攻擊一下讓資料進來：
-
-```bash
-# SSH（需使用弱密碼，例如 admin/admin 或 root/toor）
-ssh -p 2222 admin@localhost          # 密碼: admin
-ssh -p 2222 root@localhost           # 密碼: toor
-ssh -p 2222 dbadmin@localhost        # 密碼: Sup3rS3cr3t!2019（與 .env 相同）
-
-# 或直接跑自動化 demo 攻擊
-./scripts/demo.sh
-```
-
-攻擊完畢後重新整理 Dashboard，就會看到 Session 紀錄和圖表。
 
 ---
 
@@ -254,7 +183,10 @@ honeypot/
   honeypot.db              # 共用 SQLite 資料庫
   .env                     # 所有設定
   scripts/
-    start.sh               # 本機啟動所有服務
+    setup.sh               # 初次建置（venv、套件、Ollama 模型）
+    start.sh               # 啟動後端四個服務
+    start-all.sh           # 一鍵啟動後端 + 前端（tmux）
+    update.sh              # git pull + 重啟服務
     demo.sh                # Demo 用模擬攻擊腳本
 ```
 
