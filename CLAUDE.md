@@ -57,7 +57,7 @@ cd layer3/frontend && npm run dev
 
 **Cache-first** — `layer2/cache.py` handles common commands (ls, cat, whoami, pwd, id, uname, echo) without calling Ollama. Returns `None` on cache miss → goes to Ollama.
 
-**Model is configurable** — `OLLAMA_MODEL` in `.env`. No hardcoding. `ollama_client.py` reads it at call time.
+**Two models** — `OLLAMA_MODEL` for terminal responses (low temperature=0.1), `OLLAMA_REPORT_MODEL` for threat reports (temperature=0.6). Both in `.env`. `ollama_client.py` reads both at call time.
 
 **DB_PATH env var** — `layer2/db.py` reads `DB_PATH` from environment. Tests override it via the `tmp_db` fixture in `tests/conftest.py`. Never hardcode the DB path.
 
@@ -65,18 +65,21 @@ cd layer3/frontend && npm run dev
 
 **Fake filesystem** — bait files are in `layer2/cache.py`: `/var/www/html/.env`, `/home/admin/backup.sql`, `/var/www/html/wp-config.php`. Edit there to change what attackers find.
 
-**HTTP server** — each request creates a new `session_id`. No persistent HTTP sessions.
+**HTTP server** — each request creates a new `session_id` (IP + uuid4). Intent classifier runs on path+body, result logged to both `http_requests` and `commands` table. Session immediately ends after logging.
 
-**WebSocket broadcast** — `layer3/stats_api.py` has a `broadcast(event)` async function. Call it from the logger or SSH server to push live events to the dashboard.
+**WebSocket broadcast** — `logger.py` calls `enqueue_event(event)` (thread-safe sync). `stats_api.py` runs a background task on the ASGI loop that consumes the queue and calls `broadcast()`. Never call `broadcast()` directly from non-async code.
 
 ## Intent Categories
 
-`reconnaissance`, `privilege_escalation`, `data_exfiltration`, `persistence`, `lateral_movement`, `unknown`
+`reconnaissance`, `privilege_escalation`, `data_exfiltration`, `persistence`, `lateral_movement`, `credential_harvesting`, `web_recon`, `injection_attempt`, `unknown`
 
 Threat level logic in `ssh_server.py:_compute_threat_level()`:
-- High: privilege_escalation or data_exfiltration seen
+- Critical: privilege_escalation AND data_exfiltration both seen
+- High: privilege_escalation OR data_exfiltration seen
 - Medium: persistence or lateral_movement seen
 - Low: everything else
+
+**shared/models.py** — single source of truth for `RespondRequest`/`RespondResponse` Pydantic models. `VALID_INTENTS` must be updated whenever `intent_classifier.py` adds new intent categories.
 
 ## Adding a New Fake File
 

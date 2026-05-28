@@ -1,4 +1,5 @@
 import os
+import html
 import json
 import uuid
 import time
@@ -7,6 +8,7 @@ from fastapi.responses import HTMLResponse
 import uvicorn
 from dotenv import load_dotenv
 from layer1.logger import Logger
+from layer2.intent_classifier import classify as _classify_intent
 
 load_dotenv()
 
@@ -64,12 +66,19 @@ _XMLRPC = """<?xml version="1.0" encoding="UTF-8"?>
 
 def _make_session_id(request: Request) -> str:
     ip = request.client.host if request.client else "unknown"
-    return f"http-{ip}-{int(time.time())}"
+    return f"http-{ip}-{uuid.uuid4().hex[:8]}"
 
 def _log(request: Request, path: str, body: str, code: int, creds: str | None = None):
     sid = _make_session_id(request)
     _logger.session_start(sid, "http", request.client.host if request.client else "unknown")
     _logger.http_request(sid, request.method, path, body, code, creds)
+    intent, conf = _classify_intent(path + " " + body)
+    if intent != "unknown":
+        _logger.command(sid, f"HTTP {request.method} {path}", "", intent, conf, True)
+    # HTTP session 每次請求就完整記錄，立即結束
+    threat = "High" if intent in ("credential_harvesting", "injection_attempt") else \
+             "Medium" if intent in ("web_recon",) else "Low"
+    _logger.session_end(sid, threat)
 
 @app.get("/wp-admin", response_class=HTMLResponse)
 @app.get("/wp-admin/", response_class=HTMLResponse)
@@ -99,6 +108,19 @@ async def phpmyadmin(request: Request):
     _log(request, request.url.path, "", 200)
     return HTMLResponse(_PHPMYADMIN_HTML)
 
+@app.post("/phpmyadmin", response_class=HTMLResponse)
+@app.post("/phpmyadmin/", response_class=HTMLResponse)
+async def phpmyadmin_post(
+    request: Request,
+    pma_username: str = Form(""),
+    pma_password: str = Form(""),
+):
+    import json as _json
+    creds = _json.dumps({"username": pma_username, "password": pma_password})
+    _log(request, request.url.path,
+         f"pma_username={pma_username}&pma_password={pma_password}", 200, creds)
+    return HTMLResponse(_PHPMYADMIN_HTML, status_code=200)
+
 @app.get("/xmlrpc.php")
 async def xmlrpc(request: Request):
     _log(request, "/xmlrpc.php", "", 200)
@@ -110,7 +132,7 @@ async def catch_all(request: Request, path: str):
     _log(request, "/" + path, body, 404)
     return HTMLResponse(
         f'<!DOCTYPE html><html><head><title>Page not found &lsaquo; Demo Site &mdash; WordPress</title></head>'
-        f'<body><h1>Not Found</h1><p>The page <code>/{path}</code> could not be found.</p></body></html>',
+        f'<body><h1>Not Found</h1><p>The page <code>/{html.escape(path)}</code> could not be found.</p></body></html>',
         status_code=404
     )
 

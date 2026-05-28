@@ -13,7 +13,8 @@ class SessionManager:
             "current_dir": "/home/admin",
             "user": user,
             "ip": ip,
-            "history": [],
+            "history": [],          # list[str]，舊的，保留向後相容
+            "history_pairs": [],    # list[tuple[str, str]]，指令+回應配對
         }
         return self._sessions[session_id]
 
@@ -25,6 +26,13 @@ class SessionManager:
         h.append(command)
         if len(h) > 10:
             self._sessions[session_id]["history"] = h[-10:]
+
+    def push_history_with_response(self, session_id: str, command: str, response: str) -> None:
+        h = self._sessions[session_id]["history_pairs"]
+        h.append((command, response[:200]))
+        if len(h) > 10:
+            self._sessions[session_id]["history_pairs"] = h[-10:]
+        self.push_history(session_id, command)
 
     def handle_cd(self, session_id: str, command: str) -> tuple[str, str]:
         parts = command.split(maxsplit=1)

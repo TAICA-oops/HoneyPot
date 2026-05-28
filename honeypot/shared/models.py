@@ -1,8 +1,15 @@
 from pydantic import BaseModel, field_validator
 
 VALID_INTENTS = {
-    "reconnaissance", "privilege_escalation", "data_exfiltration",
-    "persistence", "lateral_movement", "unknown"
+    "reconnaissance",
+    "privilege_escalation",
+    "data_exfiltration",
+    "persistence",
+    "lateral_movement",
+    "credential_harvesting",
+    "web_recon",
+    "injection_attempt",
+    "unknown",
 }
 
 class RespondRequest(BaseModel):

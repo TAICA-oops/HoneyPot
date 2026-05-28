@@ -1,5 +1,15 @@
-import sqlite3
+from datetime import datetime
 from layer2.db import get_conn, init_db
+
+
+def _broadcast_sync(event: dict) -> None:
+    """把事件放進 stats_api 的 thread-safe queue，在正確的 ASGI loop 廣播。"""
+    try:
+        from layer3.stats_api import enqueue_event
+        enqueue_event(event)
+    except Exception:
+        pass
+
 
 class Logger:
     def __init__(self, db_path: str | None = None):
@@ -25,6 +35,16 @@ class Logger:
         conn.commit()
         conn.close()
 
+        _broadcast_sync({
+            "type": "command",
+            "session_id": session_id,
+            "command": command,
+            "intent": intent,
+            "confidence": confidence,
+            "cache_hit": cache_hit,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+
     def http_request(self, session_id: str, method: str, path: str,
                      body: str, response_code: int, harvested_creds: str | None = None) -> None:
         conn = get_conn(self.db_path)
@@ -34,6 +54,14 @@ class Logger:
         )
         conn.commit()
         conn.close()
+
+        _broadcast_sync({
+            "type": "http_request",
+            "session_id": session_id,
+            "method": method,
+            "path": path,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
 
     def session_end(self, session_id: str, threat_level: str) -> None:
         conn = get_conn(self.db_path)

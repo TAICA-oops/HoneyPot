@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import LiveFeed from '../components/LiveFeed'
 import IntentChart from '../components/IntentChart'
+import CommandChart from '../components/CommandChart'
 
 export default function Dashboard() {
   const [sessions, setSessions] = useState<any[]>([])
@@ -34,8 +35,9 @@ export default function Dashboard() {
         </div>
       </div>
       <LiveFeed />
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <IntentChart />
+        <CommandChart />
         <div className="bg-gray-900 rounded-lg p-4">
           <div className="text-gray-400 text-xs mb-3">RECENT SESSIONS</div>
           <div className="space-y-2">

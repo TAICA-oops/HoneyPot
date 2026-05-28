@@ -1,5 +1,8 @@
 import os
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import asyncio
+import json
+import queue as _queue
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import uvicorn
@@ -7,10 +10,40 @@ from layer2.db import get_conn
 
 load_dotenv()
 
+# Thread-safe event queue：logger 往這裡放事件（同步），ASGI loop 消費
+_event_queue: _queue.SimpleQueue = _queue.SimpleQueue()
+
+# WebSocket clients：set + asyncio.Lock 避免 race condition
+_ws_clients: set[WebSocket] = set()
+_ws_lock: asyncio.Lock | None = None
+
+
+async def _queue_consumer() -> None:
+    while True:
+        try:
+            event = _event_queue.get_nowait()
+            await broadcast(event)
+        except _queue.Empty:
+            await asyncio.sleep(0.05)
+        except Exception:
+            pass
+
+
 app = FastAPI(title="HoneyPot Stats API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-_ws_clients: list[WebSocket] = []
+
+@app.on_event("startup")
+async def _startup():
+    global _ws_lock
+    _ws_lock = asyncio.Lock()
+    asyncio.create_task(_queue_consumer())
+
+
+def enqueue_event(event: dict) -> None:
+    """同步介面：任何 thread 都可以呼叫，不需要 asyncio。"""
+    _event_queue.put_nowait(event)
+
 
 @app.get("/api/sessions")
 def list_sessions():
@@ -21,6 +54,7 @@ def list_sessions():
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
 
 @app.get("/api/sessions/{session_id}")
 def get_session(session_id: str):
@@ -36,12 +70,13 @@ def get_session(session_id: str):
     ).fetchall()
     conn.close()
     if not session:
-        return {"error": "not found"}
+        raise HTTPException(status_code=404, detail="Session not found")
     return {
         **dict(session),
         "commands": [dict(c) for c in commands],
         "http_requests": [dict(r) for r in http_reqs],
     }
+
 
 @app.get("/api/stats/intents")
 def intent_stats():
@@ -52,8 +87,9 @@ def intent_stats():
     conn.close()
     return [dict(r) for r in rows]
 
+
 @app.get("/api/stats/commands")
-def top_commands(limit: int = 20):
+def top_commands(limit: int = Query(default=20, ge=1, le=100)):
     conn = get_conn()
     rows = conn.execute(
         "SELECT command, COUNT(*) as count FROM commands GROUP BY command ORDER BY count DESC LIMIT ?",
@@ -61,6 +97,7 @@ def top_commands(limit: int = 20):
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
 
 @app.get("/api/stats/timeline")
 def timeline():
@@ -72,43 +109,74 @@ def timeline():
     conn.close()
     return [dict(r) for r in rows]
 
+
 @app.get("/api/reports/{session_id}")
 def get_report(session_id: str):
     conn = get_conn()
     row = conn.execute("SELECT report FROM sessions WHERE session_id=?", (session_id,)).fetchone()
     conn.close()
-    return {"report": row[0] if row else None}
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"report": row[0]}
+
 
 @app.post("/api/reports/{session_id}/generate")
 def generate_session_report(session_id: str):
     from layer3.report_generator import generate_report
-    report = generate_report(session_id)
+    try:
+        report = generate_report(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Report generation failed") from exc
+    if report is None:
+        raise HTTPException(status_code=404, detail="Session not found")
     return {"report": report}
+
 
 @app.websocket("/ws/live")
 async def ws_live(ws: WebSocket):
     await ws.accept()
-    _ws_clients.append(ws)
+    async with _ws_lock:
+        _ws_clients.add(ws)
     try:
         while True:
             await ws.receive_text()
     except WebSocketDisconnect:
-        _ws_clients.remove(ws)
+        pass
+    finally:
+        async with _ws_lock:
+            _ws_clients.discard(ws)
+
 
 async def broadcast(event: dict) -> None:
-    import json
+    payload = json.dumps(event)
+    async with _ws_lock:
+        clients = list(_ws_clients)
     dead = []
-    for ws in _ws_clients:
+    for ws in clients:
         try:
-            await ws.send_text(json.dumps(event))
+            await ws.send_text(payload)
         except Exception:
             dead.append(ws)
-    for ws in dead:
-        _ws_clients.remove(ws)
+    if dead:
+        async with _ws_lock:
+            for ws in dead:
+                _ws_clients.discard(ws)
+
+
+@app.get("/api/config")
+def get_config():
+    return {
+        "ollama_model": os.getenv("OLLAMA_MODEL", "llama3.1"),
+        "ollama_report_model": os.getenv("OLLAMA_REPORT_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1")),
+        "ssh_port": os.getenv("SSH_PORT", "2222"),
+        "http_port": os.getenv("HTTP_PORT", "8080"),
+    }
+
 
 def run() -> None:
     port = int(os.getenv("STATS_API_PORT", "8001"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
 
 if __name__ == "__main__":
     run()

@@ -17,6 +17,18 @@ _RULES: list[tuple[str, list[str]]] = [
         r"\bssh\b\s+\S+@", r"\bnmap\b", r"\bping\b",
         r"/etc/hosts", r"\barp\b",
     ]),
+    ("credential_harvesting", [
+        r"wp-login\.php", r"phpmyadmin", r"pma_username",
+        r"log=.*pwd=",
+    ]),
+    ("web_recon", [
+        r"\.env", r"wp-config\.php", r"xmlrpc\.php",
+        r"\.git/", r"admin/config",
+    ]),
+    ("injection_attempt", [
+        r"union\s+select", r"<script", r"1=1", r"or\s+1=1",
+        r"\beval\b", r"base64_decode",
+    ]),
     ("reconnaissance", [
         r"\bwhoami\b", r"\bid\b", r"\buname\b", r"\bls\b",
         r"\bcat\b", r"\bfind\b", r"\bgrep\b", r"\bps\b",

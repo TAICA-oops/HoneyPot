@@ -8,4 +8,4 @@ version = "0.1.0"
 description = "LLM-powered honeypot system"
 
 [tool.setuptools]
-packages = ["layer1", "layer2", "layer3"]
+packages = ["layer1", "layer2", "layer3", "shared"]

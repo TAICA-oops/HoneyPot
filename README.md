@@ -23,11 +23,11 @@
          (即時攻擊串流、統計圖表、威脅報告)
 ```
 
-**SSH 人設：** Ubuntu 18.04.6 LTS 電商後台伺服器。任何帳號密碼都能登入。常見指令（ls、cat、pwd）直接從規則快取秒回，配備完整的假檔案系統——包含假資料庫憑證的 `/var/www/html/.env`、`/home/admin/backup.sql` MySQL dump，以及設定錯誤的 sudoers 等誘餌檔案。陌生指令才送 LLM 生成回應。
+**SSH 人設：** Ubuntu 18.04.6 LTS 電商後台伺服器。只接受常見弱密碼（admin/admin、root/toor、dbadmin/Sup3rS3cr3t!2019 等）登入。常見指令（ls、cat、pwd）直接從規則快取秒回，配備完整的假檔案系統——包含假資料庫憑證的 `/var/www/html/.env`、`/home/admin/backup.sql` MySQL dump，以及設定錯誤的 sudoers 等誘餌檔案。陌生指令才送 LLM 生成回應。
 
 **HTTP 人設：** 假 WordPress 網站。回應 `/wp-admin`、`/wp-login.php`（記錄攻擊者輸入的帳密）、`/.env`（誘餌檔）、`/phpmyadmin`、`/xmlrpc.php`，其他路徑回傳 WordPress 風格的 404。
 
-**意圖分類器：** 關鍵字比對，將指令分為 `reconnaissance`（偵查）、`privilege_escalation`（提權）、`data_exfiltration`（資料外洩）、`persistence`（持久化）、`lateral_movement`（橫向移動）。快速路徑處理 80% 以上的情況，不需呼叫 LLM。
+**意圖分類器：** 關鍵字比對，將 SSH 指令和 HTTP 請求分為 `reconnaissance`（偵查）、`privilege_escalation`（提權）、`data_exfiltration`（資料外洩）、`persistence`（持久化）、`lateral_movement`（橫向移動）、`credential_harvesting`（帳密竊取）、`web_recon`（網站偵查）、`injection_attempt`（注入攻擊）。快速路徑處理 80% 以上的情況，不需呼叫 LLM。
 
 **威脅報告：** Session 結束時自動觸發，包含 Executive Summary、攻擊時間軸、IoC 指標、威脅等級（Low / Medium / High / Critical）。
 
@@ -60,8 +60,9 @@ pip install -r requirements.txt
 ### 2. 確認 Ollama 模型
 
 ```bash
-ollama list                  # 確認有哪些模型
-ollama pull llama3.1         # 沒有的話先拉取
+ollama list                                      # 確認有哪些模型
+ollama pull llama3.1:8b-instruct-q8_0            # 終端回應模型（快速，~8.5GB VRAM）
+ollama pull qwen2.5:14b-instruct-q4_K_M          # 報告生成模型（高品質，~9GB VRAM）
 ```
 
 ### 3. 設定
@@ -69,7 +70,8 @@ ollama pull llama3.1         # 沒有的話先拉取
 編輯 `honeypot/.env`，`OLLAMA_HOST` 保持 localhost：
 
 ```env
-OLLAMA_MODEL=llama3.1
+OLLAMA_MODEL=llama3.1:8b-instruct-q8_0
+OLLAMA_REPORT_MODEL=qwen2.5:14b-instruct-q4_K_M
 OLLAMA_HOST=http://localhost:11434
 SSH_PORT=2222
 HTTP_PORT=8080
@@ -113,8 +115,10 @@ npm run dev
 服務跑起來後資料庫是空的，Dashboard 不會有任何顯示。在 terminal 1 攻擊一下讓資料進來：
 
 ```bash
-# SSH（任何帳密都能登入，亂打都行）
-ssh -p 2222 anyuser@localhost
+# SSH（需使用弱密碼，例如 admin/admin 或 root/toor）
+ssh -p 2222 admin@localhost          # 密碼: admin
+ssh -p 2222 root@localhost           # 密碼: toor
+ssh -p 2222 dbadmin@localhost        # 密碼: Sup3rS3cr3t!2019（與 .env 相同）
 
 # 或直接跑自動化 demo 攻擊
 ./scripts/demo.sh
@@ -133,7 +137,8 @@ ssh -p 2222 anyuser@localhost
 至 [ollama.ai](https://ollama.ai) 下載安裝，然後：
 
 ```bash
-ollama pull llama3.1
+ollama pull llama3.1:8b-instruct-q8_0            # 終端回應模型（快速，~8.5GB VRAM）
+ollama pull qwen2.5:14b-instruct-q4_K_M          # 報告生成模型（高品質，~9GB VRAM）
 ```
 
 #### 2. 安裝 Python 套件
@@ -181,9 +186,11 @@ npm run dev        # 開啟 http://localhost:5173
 服務跑起來後資料庫是空的，Dashboard 不會有任何顯示。在 terminal 1 攻擊一下讓資料進來：
 
 ```bash
-ssh -p 2222 anyuser@localhost      # 任何帳密
+ssh -p 2222 admin@localhost          # 密碼: admin
+ssh -p 2222 root@localhost           # 密碼: toor
+ssh -p 2222 dbadmin@localhost        # 密碼: Sup3rS3cr3t!2019
 curl http://localhost:8080/wp-admin
-./scripts/demo.sh                  # 自動化模擬攻擊
+./scripts/demo.sh                    # 自動化模擬攻擊
 ```
 
 攻擊完畢後重新整理 Dashboard，就會看到 Session 紀錄和圖表。
@@ -213,9 +220,9 @@ Dashboard 同樣用 `npm run dev` 啟動，打開 http://localhost:5173。
 
 | 頁面 | 內容 |
 |---|---|
-| Dashboard | WebSocket 即時攻擊串流、意圖分佈圓餅圖、Session 統計 |
+| Dashboard | WebSocket 即時攻擊串流、意圖分佈圓餅圖、Top Commands 長條圖、Session 統計 |
 | Sessions | 所有 Session 列表，點入可逐條重播每個指令與 LLM 回應 |
-| Reports | 每個 Session 的 LLM 生成 Markdown 威脅情報報告 |
+| Reports | 每個 Session 的 LLM 生成 Markdown 威脅情報報告（含 MITRE ATT&CK 標籤） |
 
 ---
 
@@ -225,6 +232,8 @@ Dashboard 同樣用 `npm run dev` 啟動，打開 http://localhost:5173。
 
 ```
 honeypot/
+  shared/
+    models.py              # Pydantic 共用資料模型（RespondRequest/RespondResponse）
   layer1/
     ssh_server.py          # paramiko SSH 蜜罐
     http_server.py         # FastAPI WordPress 蜜罐
@@ -263,9 +272,13 @@ honeypot/
 
 ### 切換模型
 
-只需改 `.env` 一行，不需動任何程式碼：
+只需改 `.env`，不需動任何程式碼：
 ```env
-OLLAMA_MODEL=gemma3        # 或 mistral、phi4、deepseek-r1 等
+# 終端回應模型（每個 SSH 指令）
+OLLAMA_MODEL=llama3.1:8b-instruct-q8_0
+
+# 報告生成模型（session 結束時）
+OLLAMA_REPORT_MODEL=qwen2.5:14b-instruct-q4_K_M
 ```
 
 ---
