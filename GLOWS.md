@@ -127,7 +127,7 @@ bash scripts/demo.sh
 bash scripts/update.sh
 ```
 
-自動執行：`git pull origin main` → `pip install -e .` → 重啟服務。
+自動執行：`git pull origin main` → `pip install -e .` → `npm install` → 重啟後端和前端服務。
 
 ---
 
