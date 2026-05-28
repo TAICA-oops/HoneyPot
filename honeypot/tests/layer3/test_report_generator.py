@@ -71,7 +71,13 @@ def test_log_wrapped_in_fenced_block(tmp_db):
         generate_report("sess-001")
 
     user_msg = captured["messages"][1]["content"]
-    assert "```" in user_msg, "Log 內容應被包在 fenced block 裡"
+    assert "```log\n" in user_msg, "Log 內容應以 ```log 開頭的 fenced block 包住"
+    assert "\n```" in user_msg, "Fenced block 應有結尾 ```"
+    # 確認 log 內容在 fenced block 內部
+    start = user_msg.index("```log\n") + len("```log\n")
+    end = user_msg.index("\n```", start)
+    log_body = user_msg[start:end]
+    assert "ls /" in log_body, "種子指令應在 fenced block 裡"
 
 
 def test_anti_injection_in_system_prompt():
