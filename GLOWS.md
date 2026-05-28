@@ -1,5 +1,19 @@
 # HoneyPot on glows.ai
 
+> **⚠️ 前置條件：GitHub Repo 必須可存取**
+>
+> 此 repo 目前為 **Private**，在 glows.ai 上直接 `git clone` 會失敗。請先選擇以下其中一種方式：
+>
+> **方法 A（最省事）— 改成 Public：**
+> HoneyPot repo → Settings → Danger Zone → Change visibility → Public
+> `.env` 裡沒有真正的密碼，公開安全。
+>
+> **方法 B — Personal Access Token：**
+> GitHub → Settings → Developer settings → Personal access tokens → 產生 token（勾 `repo`），clone 時用：
+> ```bash
+> git clone https://<your-token>@github.com/TAICA-oops/HoneyPot.git
+> ```
+
 glows.ai 已預裝 Ollama，使用三個腳本即可完成所有初始化和啟動：
 
 | 腳本 | 用途 |
