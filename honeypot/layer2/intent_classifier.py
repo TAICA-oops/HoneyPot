@@ -9,6 +9,7 @@ _RULES: list[tuple[str, list[str]]] = [
         r"\bsudo\b", r"\bsu\b",
         r"\bchmod\s+[0-7]*7[0-7]*\b",   # numeric SUID/world-writable modes
         r"\bchmod\b.*\+s",               # symbolic SUID: chmod u+s, g+s
+        r"\bchmod\b.*\+x",               # make executable (attack prep)
         r"/etc/sudoers",
         r"-perm\s+-u=s", r"\bSUID\b",
         r"\bpasswd\s+\w",                # passwd <user> — password change
@@ -33,6 +34,7 @@ _RULES: list[tuple[str, list[str]]] = [
         r"\bcurl\b", r"\bwget\b", r"\bscp\b", r"\bnc\b",
         r"\bbase64\b", r"/etc/shadow",
         r"/dev/tcp",                     # covers >& /dev/tcp and > /dev/tcp
+        r"\./\S+\.sh\b", r"/tmp/\S+\.sh\b",  # executing downloaded scripts
     ]),
     ("persistence", [
         r"\bcrontab\b", r"\.bashrc", r"authorized_keys",
