@@ -110,13 +110,12 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
     try:
         transport = paramiko.Transport(sock)
         transport.local_version = "SSH-2.0-OpenSSH_7.6p1 Ubuntu-4ubuntu0.7"
-        _opts = transport.get_security_options()
-        _opts.kex = [
+        transport._preferred_kex = (
             'ecdh-sha2-nistp256', 'ecdh-sha2-nistp384',
             'diffie-hellman-group14-sha256', 'diffie-hellman-group14-sha1',
-        ]
-        _opts.ciphers = ['aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'aes128-cbc', 'aes256-cbc']
-        _opts.digests = ['hmac-sha2-256', 'hmac-sha2-512', 'hmac-sha1']
+        )
+        transport._preferred_ciphers = ('aes256-ctr', 'aes192-ctr', 'aes128-ctr', 'aes256-cbc', 'aes128-cbc')
+        transport._preferred_macs = ('hmac-sha2-256', 'hmac-sha2-512', 'hmac-sha1')
         transport.add_server_key(_HOST_KEY)
         server = _ServerInterface(addr[0])
         transport.start_server(server=server)
