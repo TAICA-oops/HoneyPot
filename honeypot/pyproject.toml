@@ -6,6 +6,23 @@ build-backend = "setuptools.build_meta"
 name = "honeypot"
 version = "0.1.0"
 description = "LLM-powered honeypot system"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn>=0.29.0",
+    "paramiko>=3.4.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+    "python-multipart>=0.0.9",
+    "requests>=2.31.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "anyio>=4.0.0",
+]
 
 [tool.setuptools]
 packages = ["layer1", "layer2", "layer3", "shared"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
