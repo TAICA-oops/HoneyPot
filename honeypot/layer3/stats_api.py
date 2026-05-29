@@ -6,7 +6,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Quer
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import uvicorn
+import httpx
 from layer2.db import get_conn
+
+_geo_cache: dict[str, dict] = {}
 
 load_dotenv()
 
@@ -161,6 +164,51 @@ async def broadcast(event: dict) -> None:
         async with _ws_lock:
             for ws in dead:
                 _ws_clients.discard(ws)
+
+
+@app.get("/api/stats/geo")
+def geo_stats():
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT attacker_ip, COUNT(*) as sessions FROM sessions GROUP BY attacker_ip ORDER BY sessions DESC"
+    ).fetchall()
+    conn.close()
+
+    ip_rows = [dict(r) for r in rows]
+    results = []
+
+    external = [r for r in ip_rows if not r["attacker_ip"].startswith("127.") and r["attacker_ip"] not in ("::1", "localhost")]
+    local    = [r for r in ip_rows if r not in external]
+
+    if external:
+        try:
+            batch = [{"query": r["attacker_ip"]} for r in external]
+            uncached = [b for b in batch if b["query"] not in _geo_cache]
+            if uncached:
+                resp = httpx.post("http://ip-api.com/batch", json=uncached, timeout=5)
+                for item in resp.json():
+                    _geo_cache[item.get("query", "")] = item
+            for r in external:
+                geo = _geo_cache.get(r["attacker_ip"], {})
+                results.append({
+                    "ip": r["attacker_ip"],
+                    "country": geo.get("country", "Unknown"),
+                    "country_code": geo.get("countryCode", "??"),
+                    "city": geo.get("city", ""),
+                    "lat": geo.get("lat", 0),
+                    "lon": geo.get("lon", 0),
+                    "sessions": r["sessions"],
+                })
+        except Exception:
+            for r in external:
+                results.append({"ip": r["attacker_ip"], "country": "Unknown", "country_code": "??",
+                                 "city": "", "lat": 0, "lon": 0, "sessions": r["sessions"]})
+
+    for r in local:
+        results.append({"ip": r["attacker_ip"], "country": "Local / Simulation",
+                         "country_code": "LO", "city": "localhost",
+                         "lat": 25.0, "lon": 121.5, "sessions": r["sessions"]})
+    return results
 
 
 @app.get("/api/config")
