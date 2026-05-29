@@ -89,9 +89,6 @@ class CacheHandler:
                 path = current_dir.rstrip("/") + "/" + path
             return self._cat(path)
 
-        if re.match(r"^echo\s+.*$", cmd):
-            return cmd.split(maxsplit=1)[1].strip('"\'') + "\n"
-
         return None  # cache miss
 
     def _cat(self, path: str) -> str:
@@ -110,7 +107,13 @@ class CacheHandler:
         if path in ("/home/admin/backup.sql", "/home/admin/.bash_history",
                     "/var/www/html/wp-config.php"):
             return self._cat_interesting(path)
-        return f"cat: {path}: No such file or directory\n"
+        if path == "/var/log/auth.log":
+            return ("May 29 08:12:01 web-server-01 sshd[1234]: Failed password for root from 185.220.101.45 port 54321 ssh2\n"
+                    "May 29 08:12:03 web-server-01 sshd[1235]: Failed password for admin from 185.220.101.45 port 54322 ssh2\n"
+                    "May 29 08:12:05 web-server-01 sshd[1236]: Accepted password for root from 192.168.1.10 port 22 ssh2\n"
+                    "May 29 09:33:12 web-server-01 sudo: admin : TTY=pts/0 ; PWD=/home/admin ; USER=root ; COMMAND=/bin/bash\n"
+                    "May 29 10:01:44 web-server-01 sshd[2341]: Failed password for root from 45.33.32.156 port 12345 ssh2\n")
+        return None  # cache miss → LLM handles unknown paths
 
     def _cat_interesting(self, path: str) -> str:
         if path == "/home/admin/backup.sql":

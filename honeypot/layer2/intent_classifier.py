@@ -44,6 +44,7 @@ _RULES: list[tuple[str, list[str]]] = [
         r"\bssh\b\s+-",                  # ssh -i / -p / -L etc.
         r"\bnmap\b", r"\bping\b",
         r"/etc/hosts", r"\barp\b",
+        r"\bapt(-get)?\b.*install", r"\byum\b.*install", r"\bpip\b.*install",
     ]),
     ("reconnaissance", [
         r"\bwhoami\b", r"\bid\b", r"\buname\b", r"\bls\b",

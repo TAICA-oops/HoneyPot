@@ -32,6 +32,10 @@ class Logger:
             "INSERT INTO commands (session_id, command, response, intent, confidence, cache_hit) VALUES (?,?,?,?,?,?)",
             (session_id, command, response, intent, confidence, int(cache_hit)),
         )
+        conn.execute(
+            "UPDATE sessions SET total_cmds=(SELECT COUNT(*) FROM commands WHERE session_id=?) WHERE session_id=?",
+            (session_id, session_id),
+        )
         conn.commit()
         conn.close()
 

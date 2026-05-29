@@ -4,6 +4,8 @@ import json
 import queue as _queue
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 import uvicorn
 import httpx
@@ -96,6 +98,17 @@ def top_commands(limit: int = Query(default=20, ge=1, le=100)):
     conn = get_conn()
     rows = conn.execute(
         "SELECT command, COUNT(*) as count FROM commands GROUP BY command ORDER BY count DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/stats/recent")
+def recent_commands(limit: int = Query(default=50, ge=1, le=200)):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, session_id, command, intent, timestamp FROM commands ORDER BY id DESC LIMIT ?",
         (limit,)
     ).fetchall()
     conn.close()

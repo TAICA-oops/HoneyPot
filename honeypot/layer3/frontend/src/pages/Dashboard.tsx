@@ -7,7 +7,12 @@ import GeoChart from '../components/GeoChart'
 
 export default function Dashboard() {
   const [sessions, setSessions] = useState<any[]>([])
-  useEffect(() => { fetch('/api/sessions').then(r => r.json()).then(setSessions) }, [])
+  useEffect(() => {
+    const load = () => fetch('/api/sessions').then(r => r.json()).then(setSessions)
+    load()
+    const id = setInterval(load, 5000)
+    return () => clearInterval(id)
+  }, [])
 
   const threatBadge: Record<string, string> = {
     High: 'bg-red-900 text-red-300',
