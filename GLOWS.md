@@ -118,6 +118,36 @@ curl http://localhost:8001/api/sessions  # 應回傳 []
 
 ## 打蜜罐讓資料進來
 
+### 全套攻擊模擬（推薦）
+
+`scripts/attack_full.py` 包含 4 條攻擊鏈 + 13 個攻擊 phase，一鍵產生豐富的 Dashboard 資料：
+
+```bash
+cd honeypot
+
+# 完整模擬（4 chains + 13 phases，視 LLM 速度約需 5-10 分鐘）
+.venv/bin/python scripts/attack_full.py
+
+# 只跑 4 條攻擊鏈（WordPress滲透 → 系統接管 → 資料竊取 → Web攻擊）
+.venv/bin/python scripts/attack_full.py --chains-only
+
+# 指定攻擊鏈
+.venv/bin/python scripts/attack_full.py --chain A   # A=WordPress滲透
+.venv/bin/python scripts/attack_full.py --chain B   # B=系統接管
+.venv/bin/python scripts/attack_full.py --chain C   # C=資料竊取
+.venv/bin/python scripts/attack_full.py --chain D   # D=HTTP Web App
+
+# 指定 phase（0=Baseline, 1=Recon, 2=Cred, 3=PrivEsc, 4=Lateral,
+#            5=Persist, 6=Malware, 7=AdvSSH, 8=Probe, 9=SQLi,
+#            10=XSS/LFI, 11=Log4j/SSRF/XXE/SSTI, 12=Scanner）
+.venv/bin/python scripts/attack_full.py --phase 9
+
+# 調慢速度（LLM 回應慢時用）
+.venv/bin/python scripts/attack_full.py --delay 2.0
+```
+
+### 手動測試
+
 ```bash
 # SSH（需使用弱密碼）
 ssh -p 2222 admin@localhost       # 密碼: admin

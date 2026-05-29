@@ -119,7 +119,27 @@ ssh -p 2222 admin@localhost          # 密碼: admin
 ssh -p 2222 root@localhost           # 密碼: toor
 ssh -p 2222 dbadmin@localhost        # 密碼: Sup3rS3cr3t!2019
 curl http://localhost:8080/wp-admin
-./scripts/demo.sh                    # 自動化模擬攻擊
+./scripts/demo.sh                    # 自動化模擬攻擊（簡易版）
+```
+
+**全套攻擊模擬（推薦）** — 4 條攻擊鏈 + 13 個 phase，一鍵產生豐富的 Dashboard 資料：
+
+```bash
+cd honeypot
+# 完整模擬（約需 5-10 分鐘，視 LLM 速度而定）
+.venv/bin/python scripts/attack_full.py
+
+# 只跑 4 條攻擊鏈（快速展示）
+.venv/bin/python scripts/attack_full.py --chains-only
+
+# 只跑指定鏈（A=WordPress滲透, B=系統接管, C=資料竊取, D=Web攻擊）
+.venv/bin/python scripts/attack_full.py --chain A
+
+# 只跑指定 phase（0-12）
+.venv/bin/python scripts/attack_full.py --phase 9
+
+# 外部目標
+.venv/bin/python scripts/attack_full.py --host glows.ai-server --ssh-port 2222 --http-port 8080
 ```
 
 攻擊完畢後重新整理 Dashboard，就會看到 Session 紀錄和圖表。
