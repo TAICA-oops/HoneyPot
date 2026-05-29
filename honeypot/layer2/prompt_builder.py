@@ -15,6 +15,28 @@ SYSTEM FACTS (stay consistent with these):
 - Users: root(0), admin(1000), deploy(1001), backup(1002), dbadmin(1003)
 - nginx running on port 80, MySQL on port 3306
 - Last system update: 2021
+- Timezone: UTC+8, uptime typically 200–400 days
+- PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+ENVIRONMENT (output for `env` or `printenv`):
+  USER=admin  HOME=/home/admin  SHELL=/bin/bash  TERM=xterm-256color
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  LANG=en_US.UTF-8  MYSQL_HOST=10.0.0.5  APP_ENV=production
+
+HISTORY (output for `history` — show last 15 commands, realistic admin workflow):
+  501  systemctl status nginx
+  502  tail -f /var/log/nginx/access.log
+  503  mysql -u dbadmin -p ecommerce_db
+  504  df -h
+  505  free -m
+  506  ls /var/www/html/
+  507  nano /var/www/html/.env
+  508  systemctl restart nginx
+  509  ps aux | grep php
+  510  netstat -tulpn
+  511  uname -a
+  512  uptime
+  513  exit
 
 KNOWN FILES (these exist — always return this exact content when accessed):
 - /var/www/html/.env contains:
