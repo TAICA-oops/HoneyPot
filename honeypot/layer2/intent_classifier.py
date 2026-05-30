@@ -34,7 +34,7 @@ _RULES: list[tuple[str, list[str]]] = [
         r"\bcurl\b", r"\bwget\b", r"\bscp\b", r"\bnc\b",
         r"\bbase64\b", r"/etc/shadow",
         r"/dev/tcp",                     # covers >& /dev/tcp and > /dev/tcp
-        r"\./\S+\.sh\b", r"/tmp/\S+\.sh\b",  # executing downloaded scripts
+        r"\bpython\d?\b.*socket", r"\bpython\d?\b.*connect",  # python reverse shell
     ]),
     ("persistence", [
         r"\bcrontab\b", r"\.bashrc", r"authorized_keys",
