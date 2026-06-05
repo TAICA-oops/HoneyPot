@@ -23,7 +23,7 @@
          (即時攻擊串流、統計圖表、威脅報告)
 ```
 
-**SSH 人設：** Ubuntu 18.04.6 LTS 電商後台伺服器。只接受常見弱密碼（admin/admin、root/toor、dbadmin/Sup3rS3cr3t!2019 等）登入。常見指令（ls、cat、pwd）直接從規則快取秒回，配備完整的假檔案系統——包含假資料庫憑證的 `/var/www/html/.env`、`/home/admin/backup.sql` MySQL dump，以及設定錯誤的 sudoers 等誘餌檔案。陌生指令才送 LLM 生成回應。
+**SSH 人設：** Ubuntu 18.04.6 LTS 電商後台伺服器。只接受常見弱密碼（admin/admin、root/toor、dbadmin/Sup3rS3cr3t!2019 等）登入。常見指令（ls、cat、pwd）直接從規則快取秒回，配備完整的假檔案系統——包含假資料庫憑證的 `/var/www/html/.env`、`/home/admin/backup.sql` MySQL dump、`/home/dbadmin/.my.cnf`（MySQL client 設定，含明文密碼），以及設定錯誤的 sudoers 等誘餌檔案。陌生指令才送 LLM 生成回應。LLM 對 `ls`、`cat`、`find` 等讀取指令的回應會跨 session 快取，確保不同攻擊者看到一致的假檔案系統狀態。
 
 **HTTP 人設：** 假 WordPress 網站。回應 `/wp-admin`、`/wp-login.php`（記錄攻擊者輸入的帳密）、`/.env`（誘餌檔）、`/phpmyadmin`、`/xmlrpc.php`，其他路徑回傳 WordPress 風格的 404。
 
@@ -233,6 +233,17 @@ OLLAMA_MODEL=llama3.1:8b-instruct-q8_0
 OLLAMA_REPORT_MODEL=qwen2.5:14b-instruct-q4_K_M
 ```
 
+### 調整 LLM 行為
+
+以下參數視硬體和模型能力可自行調整：
+
+| 參數 | 位置 | 預設值 | 說明 |
+|------|------|--------|------|
+| `num_ctx` | `layer2/ollama_client.py` | `8192` | Ollama context window。硬體不足可降至 `4096`；Ollama 本身預設只有 2048，不設定會導致 system prompt 被截斷 |
+| `response[:500]` | `layer1/session_manager.py` | `500` 字元 | 每筆指令回應存入歷史的長度。過短會讓 LLM 忘記之前回傳的檔案內容 |
+| `history_pairs` 上限 | `layer1/session_manager.py` | `20` 對 | Session 內最多保留幾組指令+回應。超過後滑動捨棄最舊的 |
+| `history[-20:]` | `layer2/prompt_builder.py` | `20` 組 | 每次呼叫 LLM 時送入的歷史深度，應與上方保持一致 |
+
 ---
 
 ## Docker
@@ -263,4 +274,4 @@ cd honeypot
 .venv/bin/pytest tests/ -v
 ```
 
-34 個測試，涵蓋 SQLite Schema、Logger、Session Manager、規則快取、意圖分類器、Prompt Builder、FastAPI 端點、Stats API。不需要 Ollama 在跑，也不需要任何外部服務。
+38 個測試，涵蓋 SQLite Schema、Logger、Session Manager、規則快取、意圖分類器、Prompt Builder、FastAPI 端點、Stats API。不需要 Ollama 在跑，也不需要任何外部服務。

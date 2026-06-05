@@ -1,5 +1,6 @@
 FAKE_DIRS = {
-    "/", "/etc", "/home", "/home/admin", "/home/deploy",
+    "/", "/etc", "/home",
+    "/home/admin", "/home/deploy", "/home/backup", "/home/dbadmin",
     "/var", "/var/www", "/var/www/html", "/tmp",
     "/proc", "/usr", "/usr/bin", "/opt",
 }
@@ -29,9 +30,9 @@ class SessionManager:
 
     def push_history_with_response(self, session_id: str, command: str, response: str) -> None:
         h = self._sessions[session_id]["history_pairs"]
-        h.append((command, response[:200]))
-        if len(h) > 10:
-            self._sessions[session_id]["history_pairs"] = h[-10:]
+        h.append((command, response[:500]))
+        if len(h) > 20:
+            self._sessions[session_id]["history_pairs"] = h[-20:]
         self.push_history(session_id, command)
 
     def handle_cd(self, session_id: str, command: str) -> tuple[str, str]:

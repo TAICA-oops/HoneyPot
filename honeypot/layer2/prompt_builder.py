@@ -79,15 +79,16 @@ def build_messages(
     history_block = ""
     if history:
         lines = []
-        for item in history[-5:]:
+        for item in history[-20:]:
             if isinstance(item, tuple):
                 cmd, resp = item
                 lines.append(f"$ {cmd}")
-                resp_preview = "\n".join(resp.splitlines()[:3])
+                resp_preview = "\n".join(resp.splitlines()[:6])
                 if resp_preview:
                     lines.append(resp_preview)
             else:
-                lines.append(f"$ {item}")
+                # item may already be "$ cmd\nresp" from rich_history — don't double the $
+                lines.append(item if item.startswith("$ ") else f"$ {item}")
         history_block = "Previous commands in this session:\n" + "\n".join(lines) + "\n\n"
 
     user_content = (

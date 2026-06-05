@@ -20,7 +20,7 @@ def generate(messages: list[dict], temperature: float = 0.1, model: str | None =
         "messages": messages,
         "stream": False,
         "keep_alive": -1,
-        "options": {"temperature": temperature},
+        "options": {"temperature": temperature, "num_ctx": 8192},
     }
     try:
         resp = httpx.post(url, json=payload, timeout=30.0)
@@ -38,7 +38,7 @@ def generate_streaming(messages: list[dict], temperature: float = 0.1):
         "messages": messages,
         "stream": True,
         "keep_alive": -1,
-        "options": {"temperature": temperature},
+        "options": {"temperature": temperature, "num_ctx": 8192},
     }
     try:
         with httpx.stream("POST", url, json=payload, timeout=30.0) as resp:
