@@ -28,7 +28,7 @@ def test_threat_level_in_prompt_content(tmp_db):
 
     captured = {}
 
-    def fake_generate(messages, temperature=0.1, model=None):
+    def fake_generate(messages, temperature=0.1, model=None, **kwargs):
         captured["messages"] = messages
         return "# Fake Report"
 
@@ -62,7 +62,7 @@ def test_log_wrapped_in_fenced_block(tmp_db):
 
     captured = {}
 
-    def fake_generate(messages, temperature=0.1, model=None):
+    def fake_generate(messages, temperature=0.1, model=None, **kwargs):
         captured["messages"] = messages
         return "# Fake Report"
 

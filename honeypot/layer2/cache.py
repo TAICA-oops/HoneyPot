@@ -162,6 +162,12 @@ class CacheHandler:
         if cmd == "hostname":
             return "web-server-01\n"
 
+        if cmd in ("bash", "sh", "/bin/bash", "/bin/sh"):
+            return "bash-4.4$ \n"
+
+        if re.match(r"^(ss|netstat)\b", cmd):
+            return self._network_status(cmd)
+
         if re.match(r"^uname(\s+-\w+)*$", cmd):
             return "Linux web-server-01 4.15.0-213-generic #224-Ubuntu SMP Mon Jun 19 13:30:52 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux\n"
 
@@ -208,6 +214,25 @@ class CacheHandler:
             return self._cat(path)
 
         return None  # cache miss
+
+    def _network_status(self, cmd: str) -> str:
+        if cmd.startswith("ss"):
+            return (
+                "Netid  State   Recv-Q  Send-Q   Local Address:Port    Peer Address:Port  Process\n"
+                "tcp    LISTEN  0       128      0.0.0.0:22           0.0.0.0:*           users:((\"sshd\",pid=1023,fd=3))\n"
+                "tcp    LISTEN  0       511      0.0.0.0:80           0.0.0.0:*           users:((\"nginx\",pid=1456,fd=6))\n"
+                "tcp    LISTEN  0       70       127.0.0.1:3306       0.0.0.0:*           users:((\"mysqld\",pid=1789,fd=21))\n"
+                "tcp    ESTAB   0       0        10.0.0.2:22          10.0.0.1:54321      users:((\"sshd\",pid=3142,fd=4))\n"
+            )
+        # netstat
+        return (
+            "Active Internet connections (servers and established)\n"
+            "Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name\n"
+            "tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1023/sshd\n"
+            "tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      1456/nginx\n"
+            "tcp        0      0 127.0.0.1:3306          0.0.0.0:*               LISTEN      1789/mysqld\n"
+            "tcp        0    364 10.0.0.2:22             10.0.0.1:54321          ESTABLISHED 3142/sshd\n"
+        )
 
     def _cat(self, path: str) -> str:
         if path == "/etc/passwd":

