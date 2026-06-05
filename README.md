@@ -55,6 +55,11 @@ cd HoneyPot/honeypot && bash scripts/setup.sh    # 初始化（含 Ollama 模型
 bash scripts/start-all.sh                         # 啟動所有服務
 ```
 
+> **映像選擇**：建議選 **N8N 2.1.4 & Ollama 0.13.5**（內建 Ollama + Node.js）。若 `setup.sh` 報 `npm: command not found`，先執行：
+> ```bash
+> curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs
+> ```
+
 ---
 
 ## 在自己電腦上啟動

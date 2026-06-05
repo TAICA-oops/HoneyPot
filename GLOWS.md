@@ -14,7 +14,22 @@
 > git clone https://<your-token>@github.com/TAICA-oops/HoneyPot.git
 > ```
 
-glows.ai 已預裝 Ollama，使用三個腳本即可完成所有初始化和啟動：
+glows.ai 已預裝 Ollama。建議選擇 **N8N 2.1.4 & Ollama 0.13.5** 映像（內建 Ollama + Node.js）。
+
+> **⚠️ npm 不在 PATH 的問題**
+>
+> 即使映像標示有 Node.js，`npm` 指令可能找不到。執行 `setup.sh` 前先確認：
+> ```bash
+> which npm
+> ```
+> 若無輸出，手動安裝：
+> ```bash
+> curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+> apt-get install -y nodejs
+> ```
+> 安裝完後再執行 `setup.sh`。
+
+使用三個腳本即可完成所有初始化和啟動：
 
 | 腳本 | 用途 |
 |------|------|
