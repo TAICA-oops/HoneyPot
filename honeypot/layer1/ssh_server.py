@@ -149,24 +149,33 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
                     return
                 text = data.decode("utf-8", errors="replace")
 
-                if text in ("\r", "\n", "\r\n"):
-                    chan.send(b"\r\n")
+                # Process character by character so that bulk sends (e.g. from
+                # attack scripts that send "cmd\n" in one chunk) are handled
+                # correctly alongside interactive one-char-at-a-time input.
+                done = False
+                for ch in text:
+                    if ch in ("\r", "\n"):
+                        chan.send(b"\r\n")
+                        done = True
+                        break
+                    elif ch in ("\x7f", "\x08"):
+                        if buf:
+                            buf = buf[:-1]
+                            chan.send(b"\x08 \x08")
+                    elif ch == "\x03":
+                        buf = ""
+                        chan.send(b"^C\r\n")
+                        done = True
+                        break
+                    elif ch == "\x04":
+                        chan.send(b"logout\r\n")
+                        _end_session()
+                        return
+                    else:
+                        buf += ch
+                        chan.send(ch.encode())
+                if done:
                     break
-                elif text in ("\x7f", "\x08"):
-                    if buf:
-                        buf = buf[:-1]
-                        chan.send(b"\x08 \x08")
-                elif text == "\x03":
-                    buf = ""
-                    chan.send(b"^C\r\n")
-                    break
-                elif text == "\x04":
-                    chan.send(b"logout\r\n")
-                    _end_session()
-                    return
-                else:
-                    buf += text
-                    chan.send(text.encode())
 
             command = buf.strip()
             buf = ""
