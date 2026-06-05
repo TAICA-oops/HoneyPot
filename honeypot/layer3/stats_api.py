@@ -137,10 +137,12 @@ def get_report(session_id: str):
 
 
 @app.post("/api/reports/{session_id}/generate")
-def generate_session_report(session_id: str, lang: str = Query(default="en", pattern="^(en|zh)$")):
+def generate_session_report(session_id: str,
+                             lang: str = Query(default="en", pattern="^(en|zh)$"),
+                             save: bool = Query(default=True)):
     from layer3.report_generator import generate_report
     try:
-        report = generate_report(session_id, lang=lang)
+        report = generate_report(session_id, lang=lang, save=save)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Report generation failed") from exc
     if report is None:

@@ -11,13 +11,14 @@ export default function Reports() {
 
   useEffect(() => { fetch('/api/sessions').then(r => r.json()).then(setSessions) }, [])
 
-  const loadReport = async (id: string, forceLang?: 'en' | 'zh') => {
-    const useLang = forceLang ?? lang
+  const loadReport = async (id: string) => {
     setCurrentSession(id)
-    const { report } = await fetch(`/api/reports/${id}`).then(r => r.json())
-    if (report) { setReport(report); return }
+    setReport('')
+    setGenerating(false)
+    const { report: existing } = await fetch(`/api/reports/${id}`).then(r => r.json())
+    if (existing) { setReport(existing); return }
     setGenerating(true)
-    const res = await fetch(`/api/reports/${id}/generate?lang=${useLang}`, { method: 'POST' })
+    const res = await fetch(`/api/reports/${id}/generate?lang=${lang}`, { method: 'POST' })
     const data = await res.json()
     setReport(data.report || 'Generation failed.')
     setGenerating(false)
@@ -25,9 +26,10 @@ export default function Reports() {
 
   const regenerate = async (useLang: 'en' | 'zh') => {
     if (!currentSession) return
-    setGenerating(true)
     setReport('')
-    const res = await fetch(`/api/reports/${currentSession}/generate?lang=${useLang}`, { method: 'POST' })
+    setGenerating(true)
+    // save=false: 切換語言只顯示，不覆蓋 DB 裡的原始報告
+    const res = await fetch(`/api/reports/${currentSession}/generate?lang=${useLang}&save=false`, { method: 'POST' })
     const data = await res.json()
     setReport(data.report || 'Generation failed.')
     setGenerating(false)
@@ -39,7 +41,7 @@ export default function Reports() {
         <div className="text-gray-400 text-xs mb-3">SELECT SESSION</div>
         {sessions.map(s => (
           <button key={s.session_id} onClick={() => loadReport(s.session_id)}
-            className="w-full text-left p-3 rounded mb-2 bg-gray-800 hover:bg-gray-700">
+            className={`w-full text-left p-3 rounded mb-2 hover:bg-gray-700 ${currentSession === s.session_id ? 'bg-gray-700' : 'bg-gray-800'}`}>
             <div className="text-sm font-mono text-white">{s.attacker_ip}</div>
             <div className="text-xs text-gray-400">{s.protocol?.toUpperCase()} · {s.threat_level}</div>
           </button>
@@ -61,10 +63,19 @@ export default function Reports() {
             </button>
           )}
         </div>
-        {generating && <div className="text-yellow-400 animate-pulse">Generating report with LLM...</div>}
+        {generating && <div className="text-yellow-400 animate-pulse mb-4">Generating report with LLM...</div>}
         {!report && !generating && <div className="text-gray-600">Select a session to view or generate its report.</div>}
-        {report && (
-          <div className="prose prose-invert max-w-none prose-headings:text-white prose-p:text-gray-300">
+        {report && !generating && (
+          <div className="text-gray-300 text-sm
+            [&_h2]:text-white [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:border-b [&_h2]:border-gray-700 [&_h2]:pb-1
+            [&_h3]:text-gray-200 [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1
+            [&_p]:mb-2 [&_p]:leading-relaxed
+            [&_ul]:list-disc [&_ul]:ml-5 [&_ul]:mb-2 [&_li]:mb-1
+            [&_strong]:text-white
+            [&_table]:w-full [&_table]:border-collapse [&_table]:my-3 [&_table]:text-xs
+            [&_th]:border [&_th]:border-gray-600 [&_th]:bg-gray-800 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-gray-200
+            [&_td]:border [&_td]:border-gray-700 [&_td]:px-3 [&_td]:py-1.5 [&_td]:align-top
+            [&_code]:bg-gray-800 [&_code]:px-1 [&_code]:rounded [&_code]:text-green-300 [&_code]:text-xs">
             <Markdown remarkPlugins={[remarkGfm]}>{report}</Markdown>
           </div>
         )}

@@ -56,7 +56,7 @@ RULES:
 - Keep each section concise but specific
 """
 
-def generate_report(session_id: str, lang: str = "en") -> str:
+def generate_report(session_id: str, lang: str = "en", save: bool = True) -> str:
     conn = get_conn()
     session = conn.execute("SELECT * FROM sessions WHERE session_id=?", (session_id,)).fetchone()
     commands = conn.execute(
@@ -104,9 +104,10 @@ def generate_report(session_id: str, lang: str = "en") -> str:
     if any(report.strip().startswith(s) for s in _FAILURE_STRINGS):
         return "# Report Generation Failed\nOllama did not respond. Please try again later."
 
-    conn = get_conn()
-    conn.execute("UPDATE sessions SET report=? WHERE session_id=?", (report, session_id))
-    conn.commit()
-    conn.close()
+    if save:
+        conn = get_conn()
+        conn.execute("UPDATE sessions SET report=? WHERE session_id=?", (report, session_id))
+        conn.commit()
+        conn.close()
 
     return report
