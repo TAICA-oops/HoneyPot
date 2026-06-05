@@ -100,7 +100,7 @@ export default function LiveFeed() {
       {events.map((ev, i) => (
         <div key={i} className="flex gap-3 mb-1">
           <span className="text-gray-600 shrink-0">{ev.timestamp?.slice(11, 19)}</span>
-          <span className={`shrink-0 w-36 ${intentColor[ev.intent] ?? 'text-gray-400'}`}>{ev.intent}</span>
+          <span className={`shrink-0 w-44 ${intentColor[ev.intent] ?? 'text-gray-400'}`}>{ev.intent}</span>
           <span className="text-green-300 truncate">{ev.command}</span>
         </div>
       ))}
