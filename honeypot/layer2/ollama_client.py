@@ -13,7 +13,8 @@ def get_model() -> str:
 def get_report_model() -> str:
     return os.getenv("OLLAMA_REPORT_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1"))
 
-def generate(messages: list[dict], temperature: float = 0.1, model: str | None = None) -> str:
+def generate(messages: list[dict], temperature: float = 0.1, model: str | None = None,
+             timeout: float = 30.0) -> str:
     url = get_ollama_host() + "/api/chat"
     payload = {
         "model": model or get_model(),
@@ -23,7 +24,7 @@ def generate(messages: list[dict], temperature: float = 0.1, model: str | None =
         "options": {"temperature": temperature, "num_ctx": 8192},
     }
     try:
-        resp = httpx.post(url, json=payload, timeout=30.0)
+        resp = httpx.post(url, json=payload, timeout=timeout)
         resp.raise_for_status()
         return resp.json()["message"]["content"]
     except httpx.TimeoutException:

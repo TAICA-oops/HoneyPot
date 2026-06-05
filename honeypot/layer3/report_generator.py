@@ -98,7 +98,7 @@ def generate_report(session_id: str, lang: str = "en") -> str:
         {"role": "system", "content": system},
         {"role": "user", "content": prompt_content},
     ]
-    report = generate(messages, temperature=0.6, model=get_report_model())
+    report = generate(messages, temperature=0.6, model=get_report_model(), timeout=120.0)
 
     _FAILURE_STRINGS = ("bash: command timed out", "command not found")
     if any(report.strip().startswith(s) for s in _FAILURE_STRINGS):
