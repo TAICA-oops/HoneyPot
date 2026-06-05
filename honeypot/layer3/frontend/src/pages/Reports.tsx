@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 export default function Reports() {
   const [sessions, setSessions] = useState<any[]>([])
@@ -35,7 +36,7 @@ export default function Reports() {
         {!report && !generating && <div className="text-gray-600">Select a session to view or generate its report.</div>}
         {report && (
           <div className="prose prose-invert max-w-none prose-headings:text-white prose-p:text-gray-300">
-            <Markdown>{report}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]}>{report}</Markdown>
           </div>
         )}
       </div>
