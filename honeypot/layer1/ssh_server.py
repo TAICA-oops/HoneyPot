@@ -204,13 +204,16 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
                 cache_hit = result["cache_hit"]
                 _SESSION_MGR.push_history_with_response(session_id, command, output)
 
-            for ch in output:
-                if ch == "\n":
-                    chan.send(b"\r\n")
-                else:
-                    chan.send(ch.encode())
-
             logger.command(session_id, command, output, intent, conf, cache_hit)
+
+            try:
+                for ch in output:
+                    if ch == "\n":
+                        chan.send(b"\r\n")
+                    else:
+                        chan.send(ch.encode())
+            except Exception:
+                pass
 
         _end_session()
     except Exception as e:
