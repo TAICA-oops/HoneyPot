@@ -144,6 +144,31 @@ cd honeypot
 
 攻擊完畢後重新整理 Dashboard，就會看到 Session 紀錄和圖表。
 
+#### 查看完整指令與回應紀錄
+
+每一筆 SSH 指令和 HTTP 請求（含 LLM 回應）都會存進 `honeypot.db`。攻擊模擬結束後，用以下腳本匯出完整紀錄：
+
+```bash
+cd honeypot
+
+# 查看全部 session 的所有指令與回應
+.venv/bin/python scripts/dump_responses.py
+
+# 只看最近 3 個 session
+.venv/bin/python scripts/dump_responses.py --last 3
+
+# 只看 LLM 生成的回應（排除 cache，適合分析 LLM 品質）
+.venv/bin/python scripts/dump_responses.py --llm-only
+
+# 篩選特定攻擊意圖
+.venv/bin/python scripts/dump_responses.py --intent privilege_escalation
+
+# 儲存成文字檔（適合事後分析或交給 AI 審查）
+.venv/bin/python scripts/dump_responses.py --out report.txt --no-colour
+```
+
+輸出格式：每筆紀錄顯示來源（cache / LLM）、意圖分類、信心分數、指令內容、完整回應。
+
 ---
 
 ### 方法 B：Docker（自己電腦才能用）

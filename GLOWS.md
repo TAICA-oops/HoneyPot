@@ -163,6 +163,29 @@ curl http://localhost:8080/.env
 bash scripts/demo.sh
 ```
 
+### 查看完整指令與回應紀錄
+
+每一筆攻擊指令和 LLM 回應都存在 `honeypot.db`。攻擊模擬跑完後執行：
+
+```bash
+cd honeypot
+
+# 查看全部紀錄
+.venv/bin/python scripts/dump_responses.py
+
+# 只看最近 3 個 session
+.venv/bin/python scripts/dump_responses.py --last 3
+
+# 只看 LLM 生成的回應（排除 cache）
+.venv/bin/python scripts/dump_responses.py --llm-only
+
+# 篩選特定意圖
+.venv/bin/python scripts/dump_responses.py --intent privilege_escalation
+
+# 存成文字檔（適合分析或給 AI 審查）
+.venv/bin/python scripts/dump_responses.py --out report.txt --no-colour
+```
+
 ---
 
 ## 更新（之後每次改 code 後）
