@@ -213,6 +213,9 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
                 cache_hit = result["cache_hit"]
                 _SESSION_MGR.push_history_with_response(session_id, command, output)
 
+            if output and not output.endswith("\n"):
+                output += "\n"
+
             logger.command(session_id, command, output, intent, conf, cache_hit)
 
             try:
