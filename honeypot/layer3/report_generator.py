@@ -51,12 +51,12 @@ State the threat level exactly as given in the metadata, then justify it in 2–
 by citing specific commands or behaviors from this session as evidence.
 
 RULES:
-- Write in English
+- {lang_rule}
 - Cite actual commands/paths from the log — do NOT invent details
 - Keep each section concise but specific
 """
 
-def generate_report(session_id: str) -> str:
+def generate_report(session_id: str, lang: str = "en") -> str:
     conn = get_conn()
     session = conn.execute("SELECT * FROM sessions WHERE session_id=?", (session_id,)).fetchone()
     commands = conn.execute(
@@ -71,6 +71,9 @@ def generate_report(session_id: str) -> str:
 
     if not session:
         return "# Error\nSession not found."
+
+    lang_rule = "Write in Traditional Chinese (繁體中文)" if lang == "zh" else "Write in English"
+    system = _REPORT_SYSTEM.format(lang_rule=lang_rule)
 
     log_lines = []
     for c in commands:
@@ -92,7 +95,7 @@ def generate_report(session_id: str) -> str:
     )
 
     messages = [
-        {"role": "system", "content": _REPORT_SYSTEM},
+        {"role": "system", "content": system},
         {"role": "user", "content": prompt_content},
     ]
     report = generate(messages, temperature=0.6, model=get_report_model())
