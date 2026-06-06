@@ -58,57 +58,59 @@
 
 ---
 
-## 二、仍存在的限制 / 後續待辦（forward plan）
+## 二、第二輪已解決的限制
 
-依優先序：
+第一輪後針對「仍存在的限制」再做一輪處理,以下皆已修並有測試：
 
-1. **SSH 指紋仍可被識別（高,難全修）**
-   paramiko 的 KEX/cipher/MAC 協商清單與真實 OpenSSH 7.6 不同,`nmap --script ssh2-enum-algos`、
-   `ssh -vv` 可識別為非 OpenSSH（Cowrie/蜜罐偵測經典手法）。
-   *選項*：(a) 在 `Transport` 上自訂 `_preferred_kex`/ciphers/MACs 對齊 OpenSSH 7.6 清單;
-   (b) 接受限制,在報告/簡報誠實標註「網路層指紋仍可被進階偵測」。
-   另：Ed25519 host key 未生成（paramiko 3.4 無 `Ed25519Key.generate`）—— 可改為預先用
-   `ssh-keygen` 產生檔案再 `Ed25519Key(filename=...)` 載入。
+1. **SSH 指紋對齊（原「高,難全修」）** — `_harden_transport` 把 KEX/cipher/MAC/key 協商清單
+   收斂成 OpenSSH 7.6 風格（取 paramiko 支援的交集並依 OpenSSH 順序）,移除 `3des-cbc`/
+   `group1-sha1`/`hmac-md5`/`ssh-dss` 等老演算法;host key 補上 **Ed25519**（用 `cryptography`
+   產生）,現提供 ed25519 + ecdsa + rsa 三型別。實機驗證協商出 `aes128-ctr` / `curve25519` /
+   `ssh-ed25519`。**殘留**：paramiko 仍非真正的 OpenSSH,極深入的指紋分析仍可能有差異,但常見
+   `nmap ssh2-enum-algos`/`ssh -vv` 看到的演算法清單已與 OpenSSH 7.6 一致。
 
-2. **誘餌檔的非確定性讀取（中）**
-   `head`/`tail`/`wc -c`/`stat`/`grep` 對誘餌檔仍走 LLM,可能與 `cat` 的確定性內容對不上
-   （例：`head .env` vs `cat .env`）。
-   *建議*：在 `cache` 對已知誘餌檔攔截 `head/tail/wc -c/stat`,由 `_FILE_CONTENT` 程式化產生。
+2. **誘餌檔非確定性讀取** — `cache` 對已知誘餌檔攔截 `head`/`tail`/`wc`,由 `_FILE_CONTENT`
+   程式化計算（套用相同權限模型）;`head .env`、`wc -c .env` 已與 `cat .env` 一致。
+   （`stat`、`grep`、管線仍走 LLM,見下方「剩餘」。）
 
-3. **報告生成併發（中低）**
-   每個 SSH session 結束都開一條 daemon thread 打 Ollama（120s）。大量 session 同時結束會互相排隊。
-   *建議*：改用單一 worker + 佇列串行化,或加上同時併發上限。
+3. **報告生成併發** — 改 `report_generator.enqueue_report` 單一 worker 佇列串行消化,
+   單一工作失敗不影響後續。
 
-4. **Stats API 安全（部署才需要）**
-   `CORS allow_origins=["*"]` 且無認證;`POST /api/reports/{id}/generate` 可被外部狂打 Ollama（DoS）。
-   *建議*：部署時加 API token 或限制來源;`/api/config` 可考慮不對外。
+4. **Stats API CORS** — `CORS_ORIGINS` 環境變數可鎖定來源,預設仍 `*` 不影響本地 demo。
 
-5. **時間不前進（低）**
-   `date` 永遠回同一時間,`date; sleep 5; date` 不變。
-   *建議*：以「啟動時間 + 真實流逝」計算,或接受此限制。
+5. **時間前進** — `fake_fs.date_str()/uptime_str()` 回傳即時 UTC 時間,uptime 隨真實時間增加;
+   prompt 改在每次請求附上 `System time`。`date` 兩次不再相同、也不再卡在 2023。
 
-6. **shell 進階功能（低）**
-   方向鍵/Tab 補全會被當成字元塞進指令;管線/重導向的 `cat .env | grep` 走 LLM 非確定性。
-   多為互動式攻擊者才會踩到。
+## 三、剩餘限制（影響低,暫不處理）
+
+- **shell 進階功能**：方向鍵/Tab 補全會被當字元塞進指令;`cat .env | grep`、重導向等管線/
+  組合走 LLM,非確定性。多為互動式攻擊者才會踩到。
+- **`stat` / `grep` 對誘餌檔仍走 LLM**：可比照 head/tail/wc 補上確定性處理（`stat` 需補齊
+  inode/owner/mode 等 metadata 才不會與 `ls -l` 打架,成本較高）。
+- **paramiko 協定層**：見上方 1 的殘留說明。
+- **Stats API 認證 / 報告端點 rate-limit**：部署對外時建議再加（目前僅 CORS 可設定）。
 
 ---
 
-## 三、驗證方式
+## 四、驗證方式
 
 ```bash
 cd honeypot
-.venv/bin/pytest tests/ -q          # 84 個測試,聚焦一致性與權限
+.venv/bin/pytest tests/ -q          # 101 個測試,聚焦一致性、權限、提權、SSH 指紋
 ```
 
 關鍵測試檔：
 - `tests/test_consistency.py` —— 跨層誘餌一致性、AWS 金鑰
-- `tests/test_fake_terminal.py` —— 權限、history/.bash_history、ls 大小/正規化、sudo、ss、id
+- `tests/test_fake_terminal.py` —— 權限、history/.bash_history、ls 大小/正規化、sudo、ss、id、時間
+- `tests/test_bait_read_consistency.py` —— head/tail/wc 與 cat 一致
 - `tests/layer1/test_privilege_state.py` —— 提權堆疊與提權前後一致性整合測試
+- `tests/layer1/test_ssh_fingerprint.py` —— SSH 演算法對齊、三型別 host key
 - `tests/layer1/test_http_server.py` —— 同 IP 聚合、phpMyAdmin SQL 收割、威脅取最高
+- `tests/layer3/test_report_queue.py`、`test_cors_config.py` —— 報告佇列、CORS 設定
 
 ---
 
-## 四、攻擊者「測蜜罐」檢查清單（回歸測試靈感）
+## 五、攻擊者「測蜜罐」檢查清單（回歸測試靈感）
 
 做新功能前可拿這些自我檢查是否又產生破綻：
 
