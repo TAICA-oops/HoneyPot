@@ -35,21 +35,38 @@ _VALID_CREDS: dict[str, list[str]] = {
     "dbadmin": ["Sup3rS3cr3t!2019", "dbadmin"],
 }
 
-def _host_key() -> paramiko.RSAKey:
+_ECDSA_KEY_PATH = ".ssh_host_ecdsa_key"
+
+
+def _host_keys() -> list:
+    """提供多把 host key（RSA + ECDSA），更貼近真實 Ubuntu sshd 同時提供多型別金鑰。"""
+    keys = []
     if os.path.exists(HOST_KEY_PATH):
-        return paramiko.RSAKey(filename=HOST_KEY_PATH)
-    key = paramiko.RSAKey.generate(2048)
-    key.write_private_key_file(HOST_KEY_PATH)
-    return key
+        keys.append(paramiko.RSAKey(filename=HOST_KEY_PATH))
+    else:
+        k = paramiko.RSAKey.generate(2048)
+        k.write_private_key_file(HOST_KEY_PATH)
+        keys.append(k)
+    try:  # ECDSA（nistp256）；舊版 paramiko 沒有就略過,只用 RSA
+        if os.path.exists(_ECDSA_KEY_PATH):
+            keys.append(paramiko.ECDSAKey(filename=_ECDSA_KEY_PATH))
+        else:
+            k = paramiko.ECDSAKey.generate()
+            k.write_private_key_file(_ECDSA_KEY_PATH)
+            keys.append(k)
+    except Exception as e:
+        print(f"[ssh] ECDSA host key unavailable: {e}")
+    return keys
 
 _SESSION_MGR = SessionManager()
-_HOST_KEY = _host_key()
+_HOST_KEYS = _host_keys()
 
 class _ServerInterface(paramiko.ServerInterface):
     def __init__(self, addr_ip: str):
         self.username = "admin"
         self.addr_ip = addr_ip
         self._shell_ready = threading.Event()
+        self.exec_command: str | None = None   # 非互動式 `ssh host 'cmd'` 的指令
 
     def check_auth_password(self, username, password):
         allowed = _VALID_CREDS.get(username, [])
@@ -65,6 +82,12 @@ class _ServerInterface(paramiko.ServerInterface):
         return paramiko.OPEN_SUCCEEDED if kind == "session" else paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
     def check_channel_shell_request(self, channel):
+        self._shell_ready.set()
+        return True
+
+    def check_channel_exec_request(self, channel, command):
+        # 支援 `ssh user@host 'cmd'`（攻擊工具常用）；記錄指令並放行,由主執行緒處理
+        self.exec_command = command.decode() if isinstance(command, bytes) else command
         self._shell_ready.set()
         return True
 
@@ -103,6 +126,39 @@ def _auto_generate_report(session_id: str) -> None:
     threading.Thread(target=_gen, daemon=True).start()
 
 
+def _handle_exec(chan, session_id: str, command: str, logger: Logger) -> None:
+    """處理非互動式 `ssh user@host 'cmd'`：跑單一指令、回輸出、設退出碼。"""
+    command = (command or "").strip()
+    try:
+        if not command or command in ("exit", "quit", "logout"):
+            chan.send_exit_status(0)
+            return
+        eff_user = _SESSION_MGR.effective_user(session_id)
+        if command == "cd" or command.startswith("cd "):
+            _, err = _SESSION_MGR.handle_cd(session_id, command)
+            output, intent, conf, cache_hit = err, "reconnaissance", 0.9, True
+        else:
+            result = llm_client.respond(
+                session_id=session_id, protocol="ssh", command=command,
+                current_dir=_SESSION_MGR.get(session_id)["current_dir"],
+                user=eff_user, history=[],
+            )
+            output = result["response"]
+            intent, conf, cache_hit = result["intent"], result["confidence"], result["cache_hit"]
+        if output and not output.endswith("\n"):
+            output += "\n"
+        logger.command(session_id, command, output, intent, conf, cache_hit)
+        for c in output:
+            chan.send(b"\r\n" if c == "\n" else c.encode())
+    except Exception as e:
+        print(f"[ssh] exec error: {e}")
+    finally:
+        try:
+            chan.send_exit_status(0)
+        except Exception:
+            pass
+
+
 def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
     transport = None
     session_id = None
@@ -124,7 +180,8 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
     try:
         transport = paramiko.Transport(sock)
         transport.local_version = "SSH-2.0-OpenSSH_7.6p1 Ubuntu-4ubuntu0.7"
-        transport.add_server_key(_HOST_KEY)
+        for _k in _HOST_KEYS:
+            transport.add_server_key(_k)
         server = _ServerInterface(addr[0])
         transport.start_server(server=server)
 
@@ -136,6 +193,12 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
         session_id = str(uuid.uuid4())
         _SESSION_MGR.create(session_id, server.username, addr[0])
         logger.session_start(session_id, "ssh", addr[0])
+
+        # 非互動式 `ssh user@host 'cmd'`：執行單一指令、回傳輸出、設定退出碼後結束
+        if server.exec_command is not None:
+            _handle_exec(chan, session_id, server.exec_command, logger)
+            _end_session()
+            return
 
         chan.send(
             b"\r\nWelcome to Ubuntu 18.04.6 LTS (GNU/Linux 4.15.0-213-generic x86_64)\r\n"
