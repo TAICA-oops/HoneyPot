@@ -199,6 +199,12 @@ class CacheHandler:
             path = fake_fs.normalize_path(current_dir, path)
             return self._cat(path, user)
 
+        if re.match(r"^(head|tail)\b", cmd):
+            return self._head_tail(cmd, current_dir, user)
+
+        if re.match(r"^wc\b", cmd):
+            return self._wc(cmd, current_dir, user)
+
         return None  # cache miss
 
     def _sudo_l(self, user: str) -> str:
@@ -255,3 +261,57 @@ class CacheHandler:
         if not fake_fs.can_read(path, user):
             return f"cat: {path}: Permission denied\n"
         return content
+
+    def _head_tail(self, cmd: str, current_dir: str, user: str) -> str | None:
+        parts = cmd.split()
+        kind = parts[0]              # head | tail
+        n, file_tok, i = 10, None, 1
+        while i < len(parts):
+            p = parts[i]
+            if p == "-n" and i + 1 < len(parts):
+                try:
+                    n = int(parts[i + 1])
+                except ValueError:
+                    return None
+                i += 2
+                continue
+            if re.fullmatch(r"-\d+", p):
+                n = int(p[1:])
+            elif not p.startswith("-"):
+                file_tok = p
+            i += 1
+        if file_tok is None:
+            return None              # 從 stdin 讀 → 交給 LLM
+        path = fake_fs.normalize_path(current_dir, file_tok)
+        if path not in self._FILE_CONTENT:
+            return None              # 未知檔 → 交給 LLM
+        if not fake_fs.can_read(path, user):
+            return f"{kind}: cannot open '{path}' for reading: Permission denied\n"
+        lines = self._FILE_CONTENT[path].splitlines()
+        chosen = lines[:n] if kind == "head" else lines[-n:]
+        return ("\n".join(chosen) + "\n") if chosen else ""
+
+    def _wc(self, cmd: str, current_dir: str, user: str) -> str | None:
+        parts = cmd.split()
+        mode, file_tok = None, None
+        for p in parts[1:]:
+            if p in ("-c", "-l", "-w", "-m"):
+                mode = p[1]
+            elif not p.startswith("-"):
+                file_tok = p
+        if file_tok is None:
+            return None
+        path = fake_fs.normalize_path(current_dir, file_tok)
+        if path not in self._FILE_CONTENT:
+            return None
+        if not fake_fs.can_read(path, user):
+            return f"wc: {path}: Permission denied\n"
+        content = self._FILE_CONTENT[path]
+        nb, nl, nw = len(content.encode()), content.count("\n"), len(content.split())
+        if mode in ("c", "m"):
+            return f"{nb} {path}\n"
+        if mode == "l":
+            return f"{nl} {path}\n"
+        if mode == "w":
+            return f"{nw} {path}\n"
+        return f"{nl} {nw} {nb} {path}\n"
