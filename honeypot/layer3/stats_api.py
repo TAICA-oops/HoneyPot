@@ -34,8 +34,17 @@ async def _queue_consumer() -> None:
             pass
 
 
+def _cors_origins() -> list[str]:
+    """CORS 允許來源：預設 *（本地 demo）;部署時設 CORS_ORIGINS=逗號分隔網域 即可鎖定。"""
+    raw = os.getenv("CORS_ORIGINS", "*").strip()
+    if raw in ("", "*"):
+        return ["*"]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 app = FastAPI(title="HoneyPot Stats API")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=_cors_origins(),
+                   allow_methods=["*"], allow_headers=["*"])
 
 
 @app.on_event("startup")
