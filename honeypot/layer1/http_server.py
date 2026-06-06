@@ -3,6 +3,7 @@ import html
 import json
 import uuid
 import time
+from urllib.parse import parse_qs, unquote_plus
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse
 import uvicorn
@@ -58,8 +59,10 @@ _XMLRPC = """<?xml version="1.0" encoding="UTF-8"?>
 </data></array></value></param></params></methodResponse>"""
 
 def _make_session_id(request: Request) -> str:
+    # 同一個來源 IP 的所有 HTTP 活動聚合成一個 session（避免掃描器每條路徑各開一個 session
+    # 把 dashboard 洗版,也方便把一次掃描當成一段攻擊來分析）。
     ip = request.client.host if request.client else "unknown"
-    return f"http-{ip}-{uuid.uuid4().hex[:8]}"
+    return f"http-{ip}"
 
 def _log(request: Request, path: str, body: str, code: int, creds: str | None = None):
     sid = _make_session_id(request)
@@ -68,10 +71,10 @@ def _log(request: Request, path: str, body: str, code: int, creds: str | None = 
     intent, conf = _classify_intent(path + " " + body)
     if intent != "unknown":
         _logger.command(sid, f"HTTP {request.method} {path}", "", intent, conf, True)
-    # HTTP session 每次請求就完整記錄，立即結束
     threat = "High" if intent in ("credential_harvesting", "injection_attempt") else \
              "Medium" if intent in ("web_recon",) else "Low"
-    _logger.session_end(sid, threat)
+    # 聚合 session：更新活動時間並保留期間出現過的最高威脅等級
+    _logger.session_touch(sid, threat)
 
 @app.get("/wp-admin", response_class=HTMLResponse)
 @app.get("/wp-admin/", response_class=HTMLResponse)
@@ -103,15 +106,15 @@ async def phpmyadmin(request: Request):
 
 @app.post("/phpmyadmin", response_class=HTMLResponse)
 @app.post("/phpmyadmin/", response_class=HTMLResponse)
-async def phpmyadmin_post(
-    request: Request,
-    pma_username: str = Form(""),
-    pma_password: str = Form(""),
-):
-    import json as _json
-    creds = _json.dumps({"username": pma_username, "password": pma_password})
-    _log(request, request.url.path,
-         f"pma_username={pma_username}&pma_password={pma_password}", 200, creds)
+async def phpmyadmin_post(request: Request):
+    # 讀完整 body：除了帳密,也保留攻擊者的 sql_query（SQL injection 證據）
+    raw = (await request.body()).decode(errors="replace")
+    form = parse_qs(raw)
+    pma_username = (form.get("pma_username") or [""])[0]
+    pma_password = (form.get("pma_password") or [""])[0]
+    creds = json.dumps({"username": pma_username, "password": pma_password})
+    # 存 URL 解碼後的 body,讓 sql_query 在報告/分類器中可讀（含 SQLi 偵測）
+    _log(request, request.url.path, unquote_plus(raw), 200, creds)
     return HTMLResponse(_PHPMYADMIN_HTML, status_code=200)
 
 @app.get("/xmlrpc.php")

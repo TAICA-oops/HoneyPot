@@ -2,6 +2,13 @@ from datetime import datetime
 from layer2.db import get_conn, init_db
 
 
+_THREAT_ORDER = {None: 0, "": 0, "Unknown": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}
+
+
+def _threat_rank(level: str | None) -> int:
+    return _THREAT_ORDER.get(level, 0)
+
+
 def _broadcast_sync(event: dict) -> None:
     """把事件放進 stats_api 的 thread-safe queue，在正確的 ASGI loop 廣播。"""
     try:
@@ -76,6 +83,28 @@ class Logger:
                threat_level=?
                WHERE session_id=?""",
             (session_id, threat_level, session_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def session_touch(self, session_id: str, threat_level: str) -> None:
+        """更新 end_time/total_cmds,並把 threat_level 提升為現有與新值中較高者。
+
+        用於 HTTP 同 IP 聚合：後續低風險請求不可把整段 session 的等級壓回去。
+        """
+        conn = get_conn(self.db_path)
+        row = conn.execute(
+            "SELECT threat_level FROM sessions WHERE session_id=?", (session_id,)
+        ).fetchone()
+        current = row[0] if row else None
+        higher = current if _threat_rank(current) >= _threat_rank(threat_level) else threat_level
+        conn.execute(
+            """UPDATE sessions SET
+               end_time=CURRENT_TIMESTAMP,
+               total_cmds=(SELECT COUNT(*) FROM commands WHERE session_id=?),
+               threat_level=?
+               WHERE session_id=?""",
+            (session_id, higher, session_id),
         )
         conn.commit()
         conn.close()
