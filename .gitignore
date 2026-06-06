@@ -17,6 +17,7 @@ __pycache__/
 # SSH host keys (auto-generated on startup)
 .ssh_host_key
 .ssh_host_ecdsa_key
+.ssh_host_ed25519_key
 
 # Database
 *.db

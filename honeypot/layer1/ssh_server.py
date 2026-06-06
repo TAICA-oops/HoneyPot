@@ -36,10 +36,61 @@ _VALID_CREDS: dict[str, list[str]] = {
 }
 
 _ECDSA_KEY_PATH = ".ssh_host_ecdsa_key"
+_ED25519_KEY_PATH = ".ssh_host_ed25519_key"
+
+# OpenSSH 7.6p1 (Ubuntu 18.04) 預設提供的演算法順序;與 paramiko 支援的取交集後套用,
+# 把 paramiko 多出來的老演算法 (3des-cbc / group1-sha1 / hmac-md5 / ssh-dss) 拿掉,
+# 讓 KEX/cipher/MAC 協商指紋更貼近真實 OpenSSH,降低被蜜罐偵測工具一眼識破。
+_OPENSSH_KEX = [
+    "curve25519-sha256@libssh.org", "ecdh-sha2-nistp256", "ecdh-sha2-nistp384",
+    "ecdh-sha2-nistp521", "diffie-hellman-group-exchange-sha256",
+    "diffie-hellman-group16-sha512", "diffie-hellman-group14-sha256",
+    "diffie-hellman-group14-sha1",
+]
+_OPENSSH_CIPHERS = ["aes128-ctr", "aes192-ctr", "aes256-ctr"]
+_OPENSSH_MACS = [
+    "hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com",
+    "hmac-sha2-256", "hmac-sha2-512", "hmac-sha1",
+]
+_OPENSSH_KEYS = ["ssh-ed25519", "ecdsa-sha2-nistp256", "rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"]
+
+
+def _prefer(available, wanted: list) -> list:
+    """回傳 wanted ∩ available（保留 wanted 的順序）;無交集時退回 available 以免連線失敗。"""
+    kept = [a for a in wanted if a in available]
+    return kept or list(available)
+
+
+def _harden_transport(transport: paramiko.Transport) -> None:
+    try:
+        opts = transport.get_security_options()
+        opts.kex = _prefer(opts.kex, _OPENSSH_KEX)
+        opts.ciphers = _prefer(opts.ciphers, _OPENSSH_CIPHERS)
+        opts.digests = _prefer(opts.digests, _OPENSSH_MACS)
+        opts.key_types = _prefer(opts.key_types, _OPENSSH_KEYS)
+    except Exception as e:
+        print(f"[ssh] could not harden algorithms: {e}")
+
+
+def _ed25519_key():
+    """用 cryptography 產生 Ed25519 host key（paramiko 3.x 無 Ed25519Key.generate）。"""
+    if os.path.exists(_ED25519_KEY_PATH):
+        return paramiko.Ed25519Key(filename=_ED25519_KEY_PATH)
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    pem = Ed25519PrivateKey.generate().private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.OpenSSH,
+        serialization.NoEncryption(),
+    )
+    with open(_ED25519_KEY_PATH, "wb") as f:
+        f.write(pem)
+    os.chmod(_ED25519_KEY_PATH, 0o600)
+    return paramiko.Ed25519Key(filename=_ED25519_KEY_PATH)
 
 
 def _host_keys() -> list:
-    """提供多把 host key（RSA + ECDSA），更貼近真實 Ubuntu sshd 同時提供多型別金鑰。"""
+    """提供 RSA + ECDSA + Ed25519 三型別 host key,與真實 Ubuntu sshd 一致。"""
     keys = []
     if os.path.exists(HOST_KEY_PATH):
         keys.append(paramiko.RSAKey(filename=HOST_KEY_PATH))
@@ -47,7 +98,7 @@ def _host_keys() -> list:
         k = paramiko.RSAKey.generate(2048)
         k.write_private_key_file(HOST_KEY_PATH)
         keys.append(k)
-    try:  # ECDSA（nistp256）；舊版 paramiko 沒有就略過,只用 RSA
+    try:
         if os.path.exists(_ECDSA_KEY_PATH):
             keys.append(paramiko.ECDSAKey(filename=_ECDSA_KEY_PATH))
         else:
@@ -56,6 +107,10 @@ def _host_keys() -> list:
             keys.append(k)
     except Exception as e:
         print(f"[ssh] ECDSA host key unavailable: {e}")
+    try:
+        keys.append(_ed25519_key())
+    except Exception as e:
+        print(f"[ssh] Ed25519 host key unavailable: {e}")
     return keys
 
 _SESSION_MGR = SessionManager()
@@ -182,6 +237,7 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
         transport.local_version = "SSH-2.0-OpenSSH_7.6p1 Ubuntu-4ubuntu0.7"
         for _k in _HOST_KEYS:
             transport.add_server_key(_k)
+        _harden_transport(transport)   # 協商演算法對齊 OpenSSH 7.6
         server = _ServerInterface(addr[0])
         transport.start_server(server=server)
 
