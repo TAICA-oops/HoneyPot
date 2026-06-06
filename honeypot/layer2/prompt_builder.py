@@ -53,8 +53,9 @@ SYSTEM FACTS (stay consistent with these):
 - Users (name(uid)): {_USERS_LINE}
 - nginx running on port 80, MySQL on port 3306
 - Last system update: 2021
-- Current system time is frozen at: {fake_fs.SYSTEM_DATE} (timezone UTC). Any timestamps you
-  invent for logs/files must be on or before this date and use UTC — never invent future dates.
+- The current system time (UTC) is given in the user message as "System time". Use THAT time
+  for any timestamps you generate, and use UTC. Existing files/logs keep their older historical
+  timestamps. Never invent dates in the future relative to the given system time.
 - uptime is roughly 312 days
 
 FILESYSTEM (these directories exist with EXACTLY these entries — never invent extra files in them,
@@ -119,6 +120,7 @@ def build_messages(
 
     user_content = (
         f"{history_block}"
+        f"System time: {fake_fs.date_str()}\n"
         f"Current directory: {current_dir}\n"
         f"Current user: {user}\n"
         f"Command: {command}\n"

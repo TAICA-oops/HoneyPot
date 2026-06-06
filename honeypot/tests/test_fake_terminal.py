@@ -1,6 +1,19 @@
 """假終端真實性測試 —— 攻擊者交叉比對指令時不該發現破綻。"""
 import re
+import datetime
 from layer2.cache import CacheHandler
+
+
+# ── 時間會前進（不再卡在 2023、也不再 date 兩次完全相同）(#live-time) ──────────
+def test_date_reflects_current_utc_year():
+    out = CacheHandler().handle("date", "/", "admin")
+    assert str(datetime.datetime.now(datetime.timezone.utc).year) in out
+    assert "UTC" in out
+
+
+def test_uptime_has_dynamic_format():
+    out = CacheHandler().handle("uptime", "/", "admin")
+    assert "up" in out and "load average" in out
 
 
 # ── 權限模型 (#2 root 能讀 shadow / #3 非檔主不能讀他人私密檔) ─────────────────

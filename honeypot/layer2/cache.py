@@ -154,10 +154,10 @@ class CacheHandler:
             return "Linux web-server-01 4.15.0-213-generic #224-Ubuntu SMP Mon Jun 19 13:30:52 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux\n"
 
         if cmd == "date":
-            return fake_fs.SYSTEM_DATE + "\n"
+            return fake_fs.date_str() + "\n"
 
         if cmd == "uptime":
-            return " 08:42:17 up 312 days, 14:03,  1 user,  load average: 0.08, 0.03, 0.01\n"
+            return fake_fs.uptime_str() + "\n"
 
         if cmd == "history":
             lines = list(_STATIC_HISTORY)

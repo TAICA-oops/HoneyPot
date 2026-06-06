@@ -5,6 +5,35 @@ SSH 的 `cat`、HTTP 的 `/.env`、以及 LLM system prompt 都從這裡取內�
 要改攻擊者會看到什麼,只改這個檔案。
 """
 
+import time as _time
+from datetime import datetime as _datetime, timezone as _timezone
+
+# 蜜罐的「開機時間」：程序啟動往前推約 312 天,讓 uptime 看起來像長期運行的伺服器,
+# 且每次查詢都會增加（真實的活伺服器時鐘會走,不會永遠停在同一刻）。
+_BOOT_EPOCH = _time.time() - (312 * 86400 + 14 * 3600 + 3 * 60)
+
+
+def now_utc() -> "_datetime":
+    return _datetime.now(_timezone.utc)
+
+
+def date_str(dt: "_datetime | None" = None) -> str:
+    """擬真 `date` 輸出,例如 'Sat Jun  7 14:23:45 UTC 2026'（日為空白補齊兩位）。"""
+    dt = dt or now_utc()
+    return dt.strftime("%a %b ") + f"{dt.day:2d}" + dt.strftime(" %H:%M:%S UTC %Y")
+
+
+def uptime_str() -> str:
+    """擬真 `uptime` 輸出,uptime 隨真實時間增加。"""
+    now = now_utc()
+    elapsed = _time.time() - _BOOT_EPOCH
+    days = int(elapsed // 86400)
+    rem = int(elapsed % 86400)
+    hh, mm = rem // 3600, (rem % 3600) // 60
+    return (f" {now.strftime('%H:%M:%S')} up {days} days, "
+            f"{hh:2d}:{mm:02d},  1 user,  load average: 0.08, 0.03, 0.01")
+
+
 # ── 憑證 ────────────────────────────────────────────────────────────────────
 # 注意:AWS 金鑰刻意避開 AWS 官方文件的範例值 (AKIAIOSFODNN7EXAMPLE / wJalr...)，
 # 否則任何攻擊者或掃描器一眼就認出是假的,誘餌價值歸零。以下為格式合法但無效的隨機假值。

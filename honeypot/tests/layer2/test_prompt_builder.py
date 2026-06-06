@@ -15,9 +15,13 @@ def test_prompt_does_not_hardcode_user_identity():
     assert "HOME=/home/admin" not in system
 
 
-def test_prompt_states_frozen_system_time():
-    system = build_messages("date", "/", "admin", [])[0]["content"]
-    assert fake_fs.SYSTEM_DATE in system
+def test_prompt_provides_current_system_time():
+    import datetime
+    msgs = build_messages("date", "/", "admin", [])
+    user_msg = msgs[-1]["content"]
+    # 系統時間隨請求動態提供（讓 LLM 生成的日誌時間貼近現在,而非寫死 2023）
+    assert "System time:" in user_msg
+    assert str(datetime.datetime.now(datetime.timezone.utc).year) in user_msg
 
 
 def test_prompt_has_no_timezone_contradiction():
