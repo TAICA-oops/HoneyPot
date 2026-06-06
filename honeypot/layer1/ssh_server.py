@@ -171,14 +171,12 @@ def _compute_threat_level(session_id: str) -> str:
 
 
 def _auto_generate_report(session_id: str) -> None:
-    def _gen():
-        try:
-            from layer3.report_generator import generate_report
-            generate_report(session_id)
-            print(f"[ssh] report generated for {session_id}")
-        except Exception as e:
-            print(f"[ssh] report generation failed: {e}")
-    threading.Thread(target=_gen, daemon=True).start()
+    # 排入單一 worker 佇列串行生成,避免大量 session 同時結束時併發灌爆 Ollama
+    try:
+        from layer3.report_generator import enqueue_report
+        enqueue_report(session_id)
+    except Exception as e:
+        print(f"[ssh] could not enqueue report: {e}")
 
 
 def _handle_exec(chan, session_id: str, command: str, logger: Logger, attacker_ip: str = "") -> None:

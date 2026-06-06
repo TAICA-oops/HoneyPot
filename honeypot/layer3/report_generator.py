@@ -1,3 +1,5 @@
+import queue
+import threading
 from layer2.db import get_conn
 from layer2.ollama_client import generate, get_report_model
 
@@ -111,3 +113,32 @@ def generate_report(session_id: str, lang: str = "en", save: bool = True) -> str
         conn.close()
 
     return report
+
+
+# ── 報告生成佇列 ─────────────────────────────────────────────────────────────
+# 多個 session 同時結束時,若各自開 thread 生報告會同時灌爆 Ollama。改成單一
+# worker 串行消化,避免 GPU/記憶體爭用。
+_report_queue: "queue.Queue[str]" = queue.Queue()
+_worker_started = False
+_worker_lock = threading.Lock()
+
+
+def _report_worker() -> None:
+    while True:
+        session_id = _report_queue.get()
+        try:
+            generate_report(session_id)
+        except Exception as e:                      # 單一工作失敗不可讓 worker 掛掉
+            print(f"[report] generation failed for {session_id}: {e}")
+        finally:
+            _report_queue.task_done()
+
+
+def enqueue_report(session_id: str) -> None:
+    """把報告生成排入單一 worker 佇列（首次呼叫時才啟動 worker 執行緒）。"""
+    global _worker_started
+    with _worker_lock:
+        if not _worker_started:
+            threading.Thread(target=_report_worker, daemon=True).start()
+            _worker_started = True
+    _report_queue.put(session_id)
