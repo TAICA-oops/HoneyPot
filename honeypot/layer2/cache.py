@@ -117,6 +117,15 @@ class CacheHandler:
     def handle(self, command: str, current_dir: str, user: str, history: list[str] | None = None) -> str | None:
         cmd = command.strip()
 
+        # 一次性 sudo：sudo -l 給確定性授權清單;其餘讀取類指令以 root 身分執行,
+        # 確保「sudo cat /etc/shadow」與提權後「cat /etc/shadow」拿到同一份內容。
+        if cmd == "sudo -l" or cmd.startswith("sudo -l "):
+            return self._sudo_l(user)
+        if cmd.startswith("sudo ") and "-c" not in cmd.split():
+            inner = cmd[len("sudo "):].strip()
+            if inner and not inner.startswith("-"):
+                return self.handle(inner, current_dir, "root", history)
+
         if cmd == "pwd":
             return current_dir + "\n"
 
@@ -187,6 +196,17 @@ class CacheHandler:
             return self._cat(path, user)
 
         return None  # cache miss
+
+    def _sudo_l(self, user: str) -> str:
+        if user == "root" or user in fake_fs.SUDO_NOPASSWD:
+            return (
+                f"Matching Defaults entries for {user} on web-server-01:\n"
+                "    env_reset, mail_badpass,\n"
+                "    secure_path=/usr/local/sbin\\:/usr/local/bin\\:/usr/sbin\\:/usr/bin\\:/sbin\\:/bin\n\n"
+                f"User {user} may run the following commands on web-server-01:\n"
+                "    (ALL) NOPASSWD: ALL\n"
+            )
+        return f"Sorry, user {user} may not run sudo on web-server-01.\n"
 
     def _network_status(self, cmd: str) -> str:
         if cmd.startswith("ss"):

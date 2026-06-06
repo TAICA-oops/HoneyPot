@@ -154,6 +154,10 @@ PRIVATE_FILES = {
 }
 
 
+# 擁有 NOPASSWD sudo 的使用者（與 ETC_SUDOERS 的設定一致）；root 永遠有權限。
+SUDO_NOPASSWD = {"admin"}
+
+
 def can_read(path: str, user: str) -> bool:
     owner = PRIVATE_FILES.get(path)
     if owner is None:

@@ -90,3 +90,25 @@ def test_ubuntu_account_consistent_across_views():
     assert "ubuntu" in ch.handle("cat /etc/passwd", "/", "admin")
     assert "ubuntu" in ch.handle("ls /home", "/", "admin")
     assert "1004" in ch.handle("id", "/home/ubuntu", "ubuntu")
+
+
+# ── 一次性 sudo 以 root 執行 (與提權後 cat 一致) ────────────────────────────────
+def test_sudo_read_runs_as_root():
+    out = CacheHandler().handle("sudo cat /etc/shadow", "/home/admin", "admin")
+    assert out is not None
+    assert "Permission denied" not in out
+    assert "root:" in out
+
+
+def test_sudo_whoami_returns_root():
+    assert CacheHandler().handle("sudo whoami", "/home/admin", "admin") == "root\n"
+
+
+def test_sudo_l_shows_nopasswd_for_admin():
+    out = CacheHandler().handle("sudo -l", "/home/admin", "admin")
+    assert "NOPASSWD" in out
+
+
+def test_sudo_l_denies_unprivileged_user():
+    out = CacheHandler().handle("sudo -l", "/home/backup", "backup")
+    assert "may not run sudo" in out

@@ -5,13 +5,27 @@ import time
 import uuid
 import paramiko
 from dotenv import load_dotenv
-from layer1.session_manager import SessionManager
+from layer1.session_manager import SessionManager, detect_escalation
 from layer1 import llm_client
 from layer1.logger import Logger
+from shared import fake_fs
 
 load_dotenv()
 
 HOST_KEY_PATH = ".ssh_host_key"
+
+
+def _format_prompt(user: str, current_dir: str) -> str:
+    """擬真 bash PS1：家目錄收合成 ~,root 用 # 提示符。"""
+    home = fake_fs.home_for(user)
+    if current_dir == home:
+        disp = "~"
+    elif current_dir.startswith(home + "/"):
+        disp = "~" + current_dir[len(home):]
+    else:
+        disp = current_dir
+    char = "#" if user == "root" else "$"
+    return f"{user}@web-server-01:{disp}{char} "
 
 _VALID_CREDS: dict[str, list[str]] = {
     "admin":   ["admin", "password", "123456", "admin123", "Admin@123"],
@@ -134,7 +148,8 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
 
         while True:
             session = _SESSION_MGR.get(session_id)
-            prompt = f"{server.username}@web-server-01:{session['current_dir']}$ "
+            eff_user = _SESSION_MGR.effective_user(session_id)
+            prompt = _format_prompt(eff_user, session['current_dir'])
             chan.send(prompt.encode())
 
             while True:
@@ -168,6 +183,11 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
                         done = True
                         break
                     elif ch == "\x04":
+                        # Ctrl-D：在提權 shell 中先退回上一層,最底層才結束連線
+                        if _SESSION_MGR.pop_user(session_id):
+                            chan.send(b"exit\r\n")
+                            done = True
+                            break
                         chan.send(b"logout\r\n")
                         _end_session()
                         return
@@ -184,8 +204,22 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
                 continue
 
             if command in ("exit", "quit", "logout"):
+                # 在提權 shell 中 exit 只退回上一層,最底層才登出
+                if _SESSION_MGR.pop_user(session_id):
+                    chan.send(b"exit\r\n")
+                    continue
                 chan.send(b"logout\r\n")
                 break
+
+            # 提權成持續 shell（sudo su / sudo -i / sudo bash 等）：切換身分,不送 LLM
+            esc = detect_escalation(command)
+            if esc is not None:
+                toks = command.split()
+                login_shell = ("-i" in toks) or ("--login" in toks) or ("-l" in toks) \
+                    or ("su" in toks and "-" in toks)
+                _SESSION_MGR.push_user(session_id, esc, login_shell=login_shell)
+                logger.command(session_id, command, "", "privilege_escalation", 0.95, True)
+                continue
 
             # cd handled entirely in Layer 1
             if command == "cd" or command.startswith("cd "):
@@ -194,6 +228,7 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
                 intent, conf, cache_hit = "reconnaissance", 0.9, True
             else:
                 session_data = _SESSION_MGR.get(session_id)
+                eff_user = _SESSION_MGR.effective_user(session_id)
                 rich_history = [
                     f"$ {cmd}\n{resp}" if resp.strip() else f"$ {cmd}"
                     for cmd, resp in session_data["history_pairs"]
@@ -204,7 +239,7 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
                     protocol="ssh",
                     command=command,
                     current_dir=session_data["current_dir"],
-                    user=server.username,
+                    user=eff_user,
                     history=rich_history,
                 )
                 output = result["response"]
