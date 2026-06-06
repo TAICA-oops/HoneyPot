@@ -126,7 +126,7 @@ def _auto_generate_report(session_id: str) -> None:
     threading.Thread(target=_gen, daemon=True).start()
 
 
-def _handle_exec(chan, session_id: str, command: str, logger: Logger) -> None:
+def _handle_exec(chan, session_id: str, command: str, logger: Logger, attacker_ip: str = "") -> None:
     """處理非互動式 `ssh user@host 'cmd'`：跑單一指令、回輸出、設退出碼。"""
     command = (command or "").strip()
     try:
@@ -141,7 +141,7 @@ def _handle_exec(chan, session_id: str, command: str, logger: Logger) -> None:
             result = llm_client.respond(
                 session_id=session_id, protocol="ssh", command=command,
                 current_dir=_SESSION_MGR.get(session_id)["current_dir"],
-                user=eff_user, history=[],
+                user=eff_user, history=[], attacker_ip=attacker_ip,
             )
             output = result["response"]
             intent, conf, cache_hit = result["intent"], result["confidence"], result["cache_hit"]
@@ -196,7 +196,7 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
 
         # 非互動式 `ssh user@host 'cmd'`：執行單一指令、回傳輸出、設定退出碼後結束
         if server.exec_command is not None:
-            _handle_exec(chan, session_id, server.exec_command, logger)
+            _handle_exec(chan, session_id, server.exec_command, logger, addr[0])
             _end_session()
             return
 
@@ -304,6 +304,7 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
                     current_dir=session_data["current_dir"],
                     user=eff_user,
                     history=rich_history,
+                    attacker_ip=addr[0],
                 )
                 output = result["response"]
                 intent = result["intent"]

@@ -112,3 +112,26 @@ def test_sudo_l_shows_nopasswd_for_admin():
 def test_sudo_l_denies_unprivileged_user():
     out = CacheHandler().handle("sudo -l", "/home/backup", "backup")
     assert "may not run sudo" in out
+
+
+# ── ss/netstat 顯示攻擊者自己的連線 (#18) ────────────────────────────────────
+def test_ss_shows_attacker_connection():
+    out = CacheHandler().handle("ss -tnp", "/home/admin", "admin", attacker_ip="203.0.113.9")
+    assert "203.0.113.9" in out
+    assert "10.0.0.1:54321" not in out   # 不再顯示與攻擊者無關的寫死連線
+
+
+def test_netstat_shows_attacker_connection():
+    out = CacheHandler().handle("netstat -an", "/home/admin", "admin", attacker_ip="203.0.113.9")
+    assert "203.0.113.9" in out
+
+
+# ── id 顯示 sudo 群組,與 sudoers 設定一致 ────────────────────────────────────
+def test_id_admin_is_in_sudo_group():
+    out = CacheHandler().handle("id", "/home/admin", "admin")
+    assert "27(sudo)" in out
+
+
+def test_id_unprivileged_user_not_in_sudo_group():
+    out = CacheHandler().handle("id", "/home/backup", "backup")
+    assert "sudo" not in out

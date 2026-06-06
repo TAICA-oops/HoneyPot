@@ -15,6 +15,7 @@ def respond(
     current_dir: str,
     user: str,
     history: list[str],
+    attacker_ip: str = "",
 ) -> dict:
     payload = {
         "session_id": session_id,
@@ -23,6 +24,7 @@ def respond(
         "current_dir": current_dir,
         "user": user,
         "history": history,
+        "attacker_ip": attacker_ip,
     }
     try:
         r = httpx.post(_engine_url() + "/respond", json=payload, timeout=20.0)

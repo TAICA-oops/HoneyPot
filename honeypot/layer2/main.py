@@ -10,12 +10,13 @@ _cache = CacheHandler()
 
 # cross-session consistency: cache LLM responses for read-only filesystem commands
 _dynamic_fs: dict[tuple, str] = {}
+_MAX_DYNAMIC_FS = 2000   # 上限,避免長期執行記憶體無上限成長
 
 _READ_CMDS = {"ls", "cat", "find", "file", "stat", "readlink", "head", "tail"}
 
 @app.post("/respond", response_model=RespondResponse)
 def respond(req: RespondRequest) -> RespondResponse:
-    cached = _cache.handle(req.command, req.current_dir, req.user, req.history)
+    cached = _cache.handle(req.command, req.current_dir, req.user, req.history, req.attacker_ip)
     if cached is not None:
         intent, conf = classify(req.command)
         return RespondResponse(
@@ -43,6 +44,8 @@ def respond(req: RespondRequest) -> RespondResponse:
 
     cmd_name = req.command.strip().split()[0] if req.command.strip() else ""
     if cmd_name in _READ_CMDS:
+        if len(_dynamic_fs) >= _MAX_DYNAMIC_FS:
+            _dynamic_fs.pop(next(iter(_dynamic_fs)))   # 逐出最舊一筆 (FIFO)
         _dynamic_fs[fs_key] = response_text
 
     return RespondResponse(

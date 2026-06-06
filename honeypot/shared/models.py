@@ -19,6 +19,7 @@ class RespondRequest(BaseModel):
     current_dir: str
     user: str
     history: list[str] = []
+    attacker_ip: str = ""
 
 class RespondResponse(BaseModel):
     session_id: str

@@ -114,7 +114,8 @@ _STATIC_HISTORY = [
 ]
 
 class CacheHandler:
-    def handle(self, command: str, current_dir: str, user: str, history: list[str] | None = None) -> str | None:
+    def handle(self, command: str, current_dir: str, user: str,
+               history: list[str] | None = None, attacker_ip: str = "") -> str | None:
         cmd = command.strip()
 
         # 一次性 sudo：sudo -l 給確定性授權清單;其餘讀取類指令以 root 身分執行,
@@ -124,7 +125,7 @@ class CacheHandler:
         if cmd.startswith("sudo ") and "-c" not in cmd.split():
             inner = cmd[len("sudo "):].strip()
             if inner and not inner.startswith("-"):
-                return self.handle(inner, current_dir, "root", history)
+                return self.handle(inner, current_dir, "root", history, attacker_ip)
 
         if cmd == "pwd":
             return current_dir + "\n"
@@ -135,7 +136,10 @@ class CacheHandler:
         if cmd == "id":
             uid = _UID_MAP.get(user, 1000)
             gid = uid
-            return f"uid={uid}({user}) gid={gid}({user}) groups={gid}({user})\n"
+            groups = f"{gid}({user})"
+            if user in fake_fs.SUDO_NOPASSWD:   # 與 sudoers / sudo -l 一致
+                groups += ",27(sudo)"
+            return f"uid={uid}({user}) gid={gid}({user}) groups={groups}\n"
 
         if cmd == "hostname":
             return "web-server-01\n"
@@ -144,7 +148,7 @@ class CacheHandler:
             return "bash-4.4$ \n"
 
         if re.match(r"^(ss|netstat)\b", cmd):
-            return self._network_status(cmd)
+            return self._network_status(cmd, attacker_ip)
 
         if re.match(r"^uname(\s+-\w+)*$", cmd):
             return "Linux web-server-01 4.15.0-213-generic #224-Ubuntu SMP Mon Jun 19 13:30:52 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux\n"
@@ -208,14 +212,16 @@ class CacheHandler:
             )
         return f"Sorry, user {user} may not run sudo on web-server-01.\n"
 
-    def _network_status(self, cmd: str) -> str:
+    def _network_status(self, cmd: str, attacker_ip: str = "") -> str:
+        # 顯示「攻擊者自己的」SSH 連線而非寫死的無關連線（攻擊者能在輸出裡看到自己）
+        peer = attacker_ip or "10.0.0.1"
         if cmd.startswith("ss"):
             return (
                 "Netid  State   Recv-Q  Send-Q   Local Address:Port    Peer Address:Port  Process\n"
                 "tcp    LISTEN  0       128      0.0.0.0:22           0.0.0.0:*           users:((\"sshd\",pid=1023,fd=3))\n"
                 "tcp    LISTEN  0       511      0.0.0.0:80           0.0.0.0:*           users:((\"nginx\",pid=1456,fd=6))\n"
                 "tcp    LISTEN  0       70       127.0.0.1:3306       0.0.0.0:*           users:((\"mysqld\",pid=1789,fd=21))\n"
-                "tcp    ESTAB   0       0        10.0.0.2:22          10.0.0.1:54321      users:((\"sshd\",pid=3142,fd=4))\n"
+                f"tcp    ESTAB   0       0        10.0.0.2:22          {peer}:54321      users:((\"sshd\",pid=3142,fd=4))\n"
             )
         # netstat
         return (
@@ -224,7 +230,7 @@ class CacheHandler:
             "tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1023/sshd\n"
             "tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      1456/nginx\n"
             "tcp        0      0 127.0.0.1:3306          0.0.0.0:*               LISTEN      1789/mysqld\n"
-            "tcp        0    364 10.0.0.2:22             10.0.0.1:54321          ESTABLISHED 3142/sshd\n"
+            f"tcp        0    364 10.0.0.2:22             {peer}:54321          ESTABLISHED 3142/sshd\n"
         )
 
     # 公開可讀（644 之類）的誘餌檔；其餘私密檔走 fake_fs.PRIVATE_FILES 權限判斷
