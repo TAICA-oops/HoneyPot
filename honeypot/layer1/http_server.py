@@ -9,6 +9,7 @@ import uvicorn
 from dotenv import load_dotenv
 from layer1.logger import Logger
 from layer2.intent_classifier import classify as _classify_intent
+from shared import fake_fs
 
 load_dotenv()
 
@@ -31,16 +32,8 @@ h1{text-align:center;font-size:16px;}input{width:100%;padding:8px;margin:4px 0 1
 </form></div></body></html>
 """
 
-_FAKE_ENV = """\
-APP_ENV=production
-APP_KEY=base64:3lV7kQmN2pXwR8sT1uYvZaB4cDeF6gHi
-DB_HOST=localhost
-DB_DATABASE=ecommerce_db
-DB_USERNAME=dbadmin
-DB_PASSWORD=Sup3rS3cr3t!2019
-AWS_KEY=AKIAIOSFODNN7EXAMPLE
-AWS_SECRET=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-"""
+# 與 SSH `cat /var/www/html/.env` 共用同一份內容（單一真相來源）
+_FAKE_ENV = fake_fs.ENV_FILE
 
 _PHPMYADMIN_HTML = """\
 <!DOCTYPE html><html><head><title>phpMyAdmin</title>
