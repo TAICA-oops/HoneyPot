@@ -52,3 +52,29 @@ def test_head_respects_permissions():
 
 def test_head_unknown_file_delegates_to_llm():
     assert CacheHandler().handle("head /var/log/syslog", "/", "admin") is None
+
+
+# ── grep 對誘餌檔確定性（攻擊者 grep 撈密碼）────────────────────────────────
+def test_grep_matches_only_matching_lines():
+    out = CacheHandler().handle("grep DB_PASSWORD /var/www/html/.env", "/", "admin")
+    assert "DB_PASSWORD=" in out
+    assert "APP_ENV" not in out
+
+
+def test_grep_n_adds_line_numbers():
+    out = CacheHandler().handle("grep -n root /etc/passwd", "/", "admin")
+    assert out.startswith("1:")
+
+
+def test_grep_i_case_insensitive():
+    out = CacheHandler().handle("grep -i db_password /var/www/html/.env", "/", "admin")
+    assert "DB_PASSWORD" in out
+
+
+def test_grep_unknown_file_delegates_to_llm():
+    assert CacheHandler().handle("grep x /var/log/syslog", "/", "admin") is None
+
+
+def test_grep_respects_permission():
+    out = CacheHandler().handle("grep root /etc/shadow", "/", "admin")
+    assert "Permission denied" in out

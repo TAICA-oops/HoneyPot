@@ -5,6 +5,7 @@ SSH 的 `cat`、HTTP 的 `/.env`、以及 LLM system prompt 都從這裡取內�
 要改攻擊者會看到什麼,只改這個檔案。
 """
 
+import re
 import time as _time
 from datetime import datetime as _datetime, timezone as _timezone
 
@@ -187,11 +188,38 @@ PRIVATE_FILES = {
 SUDO_NOPASSWD = {"admin"}
 
 
+def owner_of(path: str) -> str | None:
+    """由路徑推斷擁有者：/root 子樹為 root,/home/<u> 子樹為 <u>,其餘無單一擁有者。"""
+    if path == "/root" or path.startswith("/root/"):
+        return "root"
+    m = re.match(r"^/home/([^/]+)(?:/|$)", path)
+    return m.group(1) if m else None
+
+
 def can_read(path: str, user: str) -> bool:
+    if user == "root":
+        return True
+    # 700 權限的目錄：/root 與任何 .ssh，只有擁有者進得去
+    if path == "/root" or path.startswith("/root/"):
+        return False
+    if "/.ssh/" in path or path.endswith("/.ssh"):
+        return owner_of(path) == user
     owner = PRIVATE_FILES.get(path)
     if owner is None:
         return True            # 公開可讀（644 之類）
-    return user == "root" or user == owner
+    return user == owner
+
+
+def can_write(path: str, user: str) -> bool:
+    """攻擊者寫入權限：root 可寫任何處;其餘僅 /tmp、/var/tmp、/dev/shm 與自己家目錄。"""
+    if user == "root":
+        return True
+    if path == "/tmp" or path.startswith(("/tmp/", "/var/tmp/", "/dev/shm/")):
+        return True
+    owner = owner_of(path)
+    if owner is not None:
+        return owner == user   # 自己的家目錄子樹
+    return False               # /etc、/usr、/var… 系統路徑,非 root 不可寫
 
 
 # ── 家目錄 ───────────────────────────────────────────────────────────────────

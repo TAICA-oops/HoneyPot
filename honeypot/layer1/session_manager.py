@@ -6,6 +6,16 @@ FAKE_DIRS = fake_fs.FAKE_DIRS
 _SHELL_BINS = {"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/bin/zsh"}
 
 
+def _overlay_is_dir(path: str) -> bool:
+    """攻擊者用 mkdir 建立的目錄（存在共用 SQLite 覆寫層）也應可 cd 進去。
+    防禦性：覆寫層／DB 不可用時回 False,絕不讓 cd 崩潰。"""
+    try:
+        from layer2 import overlay
+        return overlay.is_dir(path)
+    except Exception:
+        return False
+
+
 def detect_escalation(command: str) -> str | None:
     """判斷指令是否會開啟「持續的」提權 shell。
 
@@ -79,6 +89,15 @@ class SessionManager:
             self._sessions[session_id]["history_pairs"] = h[-20:]
         self.push_history(session_id, command)
 
+    def seed_history(self, session_id: str, pairs: list[tuple[str, str]]) -> None:
+        """以先前(跨連線)的指令+回應預先填充本 session 歷史,讓 LLM 有脈絡延續性。"""
+        s = self._sessions[session_id]
+        for command, response in pairs[-20:]:
+            s["history_pairs"].append((command, (response or "")[:500]))
+            s["history"].append(command)
+        s["history_pairs"] = s["history_pairs"][-20:]
+        s["history"] = s["history"][-10:]
+
     def handle_cd(self, session_id: str, command: str) -> tuple[str, str]:
         parts = command.split(maxsplit=1)
         current = self._sessions[session_id]["current_dir"]
@@ -89,7 +108,7 @@ class SessionManager:
         else:
             target = fake_fs.normalize_path(current, parts[1])
 
-        if target in FAKE_DIRS:
+        if target in FAKE_DIRS or _overlay_is_dir(target):
             self._sessions[session_id]["current_dir"] = target
             return target, ""
         if target in fake_fs.FAKE_FILES:

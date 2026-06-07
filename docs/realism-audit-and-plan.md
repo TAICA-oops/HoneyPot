@@ -81,36 +81,65 @@
 5. **時間前進** — `fake_fs.date_str()/uptime_str()` 回傳即時 UTC 時間,uptime 隨真實時間增加;
    prompt 改在每次請求附上 `System time`。`date` 兩次不再相同、也不再卡在 2023。
 
-## 三、剩餘限制（影響低,暫不處理）
+## 三、第三輪：狀態化擬真（分支 feat/stateful-realism）
 
-- **shell 進階功能**：方向鍵/Tab 補全會被當字元塞進指令;`cat .env | grep`、重導向等管線/
-  組合走 LLM,非確定性。多為互動式攻擊者才會踩到。
-- **`stat` / `grep` 對誘餌檔仍走 LLM**：可比照 head/tail/wc 補上確定性處理（`stat` 需補齊
-  inode/owner/mode 等 metadata 才不會與 `ls -l` 打架,成本較高）。
-- **paramiko 協定層**：見上方 1 的殘留說明。
-- **Stats API 認證 / 報告端點 rate-limit**：部署對外時建議再加（目前僅 CORS 可設定）。
+針對「LLM 蜜罐的狀態一致性」再做一輪,讓蜜罐不只「世界固定」,還能反映攻擊者的改動、並記得攻擊者。
+
+### 1. 可變狀態覆寫層 (mutable-state overlay)
+攻擊者的 `echo>檔案`、`>>`、`mkdir`、`touch`、`useradd`、`rm`、寫 `/etc/passwd` 等寫入,存進共用
+SQLite `fs_overlay`(`layer2/overlay.py`),跨連線/跨程序/跨重啟持久。後續 cat/ls/grep/head/wc 與
+Layer1 的 cd 都先查覆寫層再回落基準。修正最大的「狀態快照」破綻:先前 useradd 後 `cat /etc/passwd`
+看不到新帳號、mkdir 後 cd 不進去。寫入套用真實權限(`can_write`:非 root 不能寫系統路徑;經 sudo
+以 root 寫入),讀取套用 700 目錄規則(`/root` 與 `.ssh` 非擁有者讀不到)。
+
+### 2. 跨連線記憶 (cross-connection memory by IP)
+SSH 重連時,用該來源 IP 在 commands 表的既有指令脈絡(最近 15 筆、僅 SSH)預載回新 session 歷史
+(`logger.recent_pairs_for_ip` → `session_manager.seed_history`),讓 LLM 延續先前對話而非每次失憶。
+
+### 3. grep / readline
+- grep(單檔)對誘餌檔確定性化(支援 -i/-n/-v、shlex 引號),與 cat 一致。
+- 互動式吞掉 ANSI 跳脫序列(方向鍵/功能鍵)與 Tab,避免 `^[[A` 亂碼塞進指令。
+
+### 4. Codex 獨立審查後強化
+經 Codex 審查修正:overlay 寫入權限模型、`/root` 與 `.ssh` 讀取權限、`mkdir -p` 建父層、`rm -r`
+刪子項與存在性/目錄錯誤訊息、`ls -l` overlay 大小、改針對性查詢(避免全表掃描)、複合指令
+(`&&`/`|`/`;`)與 `> /dev/null` 交給 LLM、overlay 列數上限。
 
 ---
 
-## 四、驗證方式
+## 四、剩餘限制（影響低,暫不處理）
+
+- **`stat` 與管線走 LLM**：head/tail/wc/grep(單檔)已確定性化,但 `stat` 與 `cat … | grep …` 等
+  管線仍交給 LLM(`stat` 需補齊 inode/owner/mode 才不會與 `ls -l` 打架)。
+- **可變狀態覆寫層範圍**：涵蓋常見寫入指令,但 `cp`/`mv`/`tar` 與複合指令不持久化。
+- **paramiko 協定層**：演算法清單已對齊 OpenSSH 7.6,但極深入的時序/實作指紋仍非 100% 一致。
+- **跨連線記憶以 IP 為索引**：NAT/動態 IP 下多名攻擊者會被當成同一人(蜜罐情境多可接受)。
+- **`useradd` 並發配號未加鎖**(蜜罐並發低,SQLite 已序列化寫入)。
+- **Stats API 認證 / 報告端點 rate-limit**：部署對外時建議再加(目前僅 CORS 可設定)。
+
+---
+
+## 五、驗證方式
 
 ```bash
 cd honeypot
-.venv/bin/pytest tests/ -q          # 101 個測試,聚焦一致性、權限、提權、SSH 指紋
+.venv/bin/pytest tests/ -q          # 137 個測試,涵蓋一致性、權限、提權、覆寫層、跨連線記憶、SSH 指紋
 ```
 
 關鍵測試檔：
 - `tests/test_consistency.py` —— 跨層誘餌一致性、AWS 金鑰
 - `tests/test_fake_terminal.py` —— 權限、history/.bash_history、ls 大小/正規化、sudo、ss、id、時間
-- `tests/test_bait_read_consistency.py` —— head/tail/wc 與 cat 一致
+- `tests/test_bait_read_consistency.py` —— head/tail/wc/grep 與 cat 一致
+- `tests/test_overlay.py` —— 可變狀態覆寫層(寫入/讀回、權限、mkdir -p、rm -r、跨連線持久)
 - `tests/layer1/test_privilege_state.py` —— 提權堆疊與提權前後一致性整合測試
+- `tests/layer1/test_cross_session_memory.py` —— 跨連線記憶(by IP)的脈絡重建
 - `tests/layer1/test_ssh_fingerprint.py` —— SSH 演算法對齊、三型別 host key
 - `tests/layer1/test_http_server.py` —— 同 IP 聚合、phpMyAdmin SQL 收割、威脅取最高
 - `tests/layer3/test_report_queue.py`、`test_cors_config.py` —— 報告佇列、CORS 設定
 
 ---
 
-## 五、攻擊者「測蜜罐」檢查清單（回歸測試靈感）
+## 六、攻擊者「測蜜罐」檢查清單（回歸測試靈感）
 
 做新功能前可拿這些自我檢查是否又產生破綻：
 
@@ -122,5 +151,9 @@ cd honeypot
 - [ ] 登入身分 = `whoami` = `id` = `echo $USER` = passwd 條目（含家目錄）
 - [ ] `sudo su -` 後 `whoami`/`id`/讀 shadow 都維持 root,`exit` 退回原身分
 - [ ] HTTP `/.env` 與 SSH `cat /var/www/html/.env` 內容一致
-- [ ] `date`/`uname`/日誌時間彼此不矛盾（都 UTC、都 ≤ 凍結時間）
+- [ ] `date`/`uname`/日誌時間彼此不矛盾（都 UTC、`date` 兩次會前進）
 - [ ] 沒有任何「教科書範例」憑證（AWS 範例金鑰、`password` 之類）
+- [ ] 寫入後讀得回：`echo x > f; cat f`、`useradd u; cat /etc/passwd`、`mkdir d; cd d`
+- [ ] 寫入套權限：非 root 寫 `/etc`、`/root` 被拒;`/root/.ssh` 內容非 root 讀不到
+- [ ] 同 IP 重連後,LLM 仍「記得」先前的指令脈絡
+- [ ] 方向鍵/Tab 不會在指令列留下 `^[[A` 之類亂碼

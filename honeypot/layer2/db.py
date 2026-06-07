@@ -45,9 +45,17 @@ def init_db(db_path: str | None = None) -> None:
             response_code    INTEGER,
             harvested_creds  TEXT
         );
+        -- 可變狀態覆寫層：攻擊者建立/修改/刪除的檔案與目錄（跨連線、跨程序共用）
+        CREATE TABLE IF NOT EXISTS fs_overlay (
+            path     TEXT PRIMARY KEY,
+            kind     TEXT NOT NULL,     -- file | dir | deleted
+            content  TEXT,
+            updated  DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         PRAGMA journal_mode=WAL;
         PRAGMA busy_timeout=5000;
         CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_time);
+        CREATE INDEX IF NOT EXISTS idx_sessions_ip ON sessions(attacker_ip, protocol);
         CREATE INDEX IF NOT EXISTS idx_commands_session ON commands(session_id, timestamp);
         CREATE INDEX IF NOT EXISTS idx_commands_intent ON commands(intent);
         CREATE INDEX IF NOT EXISTS idx_http_session ON http_requests(session_id, timestamp);

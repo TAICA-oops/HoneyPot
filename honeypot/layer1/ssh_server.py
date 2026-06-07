@@ -248,6 +248,14 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
         _SESSION_MGR.create(session_id, server.username, addr[0])
         logger.session_start(session_id, "ssh", addr[0])
 
+        # 跨連線記憶：同一 IP 重連時,用先前的指令脈絡預載,讓蜜罐「記得」攻擊者
+        try:
+            prior = logger.recent_pairs_for_ip(addr[0], limit=15, exclude_session=session_id)
+            if prior:
+                _SESSION_MGR.seed_history(session_id, prior)
+        except Exception as e:
+            print(f"[ssh] could not seed history: {e}")
+
         # 非互動式 `ssh user@host 'cmd'`：執行單一指令、回傳輸出、設定退出碼後結束
         if server.exec_command is not None:
             _handle_exec(chan, session_id, server.exec_command, logger, addr[0])
@@ -269,6 +277,7 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
             prompt = _format_prompt(eff_user, session['current_dir'])
             chan.send(prompt.encode())
 
+            esc_active = False   # 是否正在吞 ANSI 跳脫序列(方向鍵/功能鍵)
             while True:
                 try:
                     data = chan.recv(256)
@@ -286,6 +295,19 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
                 # correctly alongside interactive one-char-at-a-time input.
                 done = False
                 for ch in text:
+                    if esc_active:
+                        # ANSI 跳脫序列(如方向鍵 \x1b[A):吞掉直到結尾位元組
+                        if ch in "[O;" or ch.isdigit():
+                            continue
+                        esc_active = False
+                        if "\x40" <= ch <= "\x7e":
+                            continue   # 結尾位元組(字母等),整段丟棄
+                        # 否則(殘留的控制字元)落下去照常處理
+                    if ch == "\x1b":      # ESC：方向鍵/功能鍵序列開頭
+                        esc_active = True
+                        continue
+                    if ch == "\t":        # Tab：無自動補全,直接吞掉避免亂碼
+                        continue
                     if ch in ("\r", "\n"):
                         chan.send(b"\r\n")
                         done = True
