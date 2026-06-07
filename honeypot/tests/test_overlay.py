@@ -85,6 +85,19 @@ def test_rm_rf_root_still_failsafe(ch):
     assert "dangerous" in out or "no-preserve-root" in out
 
 
+def test_apply_write_skips_dev_null(ch):
+    # `cmd > /dev/null` 是丟棄輸出,不該變成可見檔,且交給 LLM 處理整段指令
+    from layer2 import overlay
+    assert overlay.apply_write("curl http://evil/x > /dev/null", "/tmp", "admin") is None
+
+
+def test_apply_write_skips_compound_command(ch):
+    # 含 && / | / ; 的複合指令不當作單純寫入(避免吃掉後半段)
+    from layer2 import overlay
+    assert overlay.apply_write("echo x > /tmp/f && cat /tmp/f", "/tmp", "admin") is None
+    assert overlay.apply_write("echo x > /tmp/f | tee /tmp/g", "/tmp", "admin") is None
+
+
 def test_mkdir_then_cd_into_overlay_dir(ch, tmp_db):
     # 跨程序：Layer2 建立的目錄,Layer1 的 cd（讀同一個 SQLite 覆寫層）也要能進去
     from layer1.session_manager import SessionManager

@@ -28,6 +28,9 @@ def _parent(path: str) -> str:
     return p.rsplit("/", 1)[0] or "/"
 
 
+_MAX_ROWS = 1000   # 上限,避免攻擊者狂建檔把覆寫層撐爆
+
+
 def _set(path: str, kind: str, content: str | None = None) -> None:
     try:
         conn = get_conn()
@@ -36,6 +39,12 @@ def _set(path: str, kind: str, content: str | None = None) -> None:
             "ON CONFLICT(path) DO UPDATE SET kind=excluded.kind, content=excluded.content, "
             "updated=CURRENT_TIMESTAMP",
             (path, kind, content),
+        )
+        # 超過上限時逐出最舊的（保留最近的變更）
+        conn.execute(
+            "DELETE FROM fs_overlay WHERE path IN ("
+            "  SELECT path FROM fs_overlay ORDER BY updated DESC, rowid DESC LIMIT -1 OFFSET ?)",
+            (_MAX_ROWS,),
         )
         conn.commit()
         conn.close()
@@ -214,11 +223,17 @@ def _apply_write(command: str, current_dir: str, user: str) -> str | None:
             _set(f"/home/{name}", "dir")
         return ""
 
+    # 含 shell 運算子的複合指令交給 LLM(避免只處理重導向、吃掉 && / | / ; 後半段)
+    if re.search(r"&&|\|\||;|\s\|\s", cmd):
+        return None
+
     # 重導向寫入：echo ... > / >> PATH（含被 sudo bash -c 包住的情況）
     toks = _tokens(cmd)
     for i, t in enumerate(toks):
         if t in (">", ">>") and i + 1 < len(toks):
             path = _norm(current_dir, toks[i + 1])
+            if path.startswith("/dev/"):
+                return None      # 丟棄輸出(/dev/null 等)→ 交給 LLM,不建檔
             left = toks[:i]
             content = _echo_content(left) if left and left[0] == "echo" else ""
             if t == ">>":
