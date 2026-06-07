@@ -221,6 +221,9 @@ class CacheHandler:
         if re.match(r"^wc\b", cmd):
             return self._wc(cmd, current_dir, user)
 
+        if re.match(r"^grep\b", cmd):
+            return self._grep(cmd, current_dir, user)
+
         return None  # cache miss
 
     def _sudo_l(self, user: str) -> str:
@@ -347,6 +350,40 @@ class CacheHandler:
         lines = content.splitlines()
         chosen = lines[:n] if kind == "head" else lines[-n:]
         return ("\n".join(chosen) + "\n") if chosen else ""
+
+    def _grep(self, cmd: str, current_dir: str, user: str) -> str | None:
+        toks = cmd.split()
+        flags, positional = set(), []
+        for t in toks[1:]:
+            if t.startswith("-") and len(t) > 1 and not t[1:].isdigit():
+                flags.update(t[1:])
+            else:
+                positional.append(t)
+        # 遞迴 grep 或多檔交給 LLM；單檔才確定性處理
+        if "r" in flags or "R" in flags or len(positional) != 2:
+            return None
+        pattern, file_tok = positional
+        pattern = pattern.strip("'\"")
+        path = fake_fs.normalize_path(current_dir, file_tok)
+        status, content = self._resolve(path, user)
+        if status == "unknown":
+            return None
+        if status == "deleted":
+            return f"grep: {path}: No such file or directory\n"
+        if status == "denied":
+            return f"grep: {path}: Permission denied\n"
+        flags_re = re.IGNORECASE if "i" in flags else 0
+        out = []
+        for idx, line in enumerate(content.splitlines(), start=1):
+            try:
+                matched = re.search(pattern, line, flags_re) is not None
+            except re.error:
+                matched = pattern in line
+            if "v" in flags:
+                matched = not matched
+            if matched:
+                out.append(f"{idx}:{line}" if "n" in flags else line)
+        return ("\n".join(out) + "\n") if out else ""
 
     def _wc(self, cmd: str, current_dir: str, user: str) -> str | None:
         parts = cmd.split()

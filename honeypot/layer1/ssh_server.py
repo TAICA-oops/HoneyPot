@@ -277,6 +277,7 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
             prompt = _format_prompt(eff_user, session['current_dir'])
             chan.send(prompt.encode())
 
+            esc_active = False   # 是否正在吞 ANSI 跳脫序列(方向鍵/功能鍵)
             while True:
                 try:
                     data = chan.recv(256)
@@ -294,6 +295,19 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
                 # correctly alongside interactive one-char-at-a-time input.
                 done = False
                 for ch in text:
+                    if esc_active:
+                        # ANSI 跳脫序列(如方向鍵 \x1b[A):吞掉直到結尾位元組
+                        if ch in "[O;" or ch.isdigit():
+                            continue
+                        esc_active = False
+                        if "\x40" <= ch <= "\x7e":
+                            continue   # 結尾位元組(字母等),整段丟棄
+                        # 否則(殘留的控制字元)落下去照常處理
+                    if ch == "\x1b":      # ESC：方向鍵/功能鍵序列開頭
+                        esc_active = True
+                        continue
+                    if ch == "\t":        # Tab：無自動補全,直接吞掉避免亂碼
+                        continue
                     if ch in ("\r", "\n"):
                         chan.send(b"\r\n")
                         done = True
