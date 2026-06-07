@@ -49,7 +49,7 @@ LLM 蜜罐最大的風險是**穿幫**：LLM 每次生成的內容會漂移，�
 
 ### 3. 跨指令一致性
 - **動態檔案系統快取**：LLM 對 `ls`/`cat`/`find` 的回應會以 `(指令, 路徑, 使用者)` 為鍵跨 session 快取，不同攻擊者看到同一份「LLM 編出來的」檔案系統。
-- **確定性讀取**：`head`/`tail`/`wc` 對已知誘餌檔由內容程式化計算，與 `cat` 一致（避免 `wc -c .env` 和 `cat .env` 對不上）。
+- **確定性讀取**：`head`/`tail`/`wc`/`grep`（單檔）對已知誘餌檔由內容程式化計算，與 `cat` 一致（避免 `wc -c .env`、`grep DB_PASSWORD .env` 和 `cat .env` 對不上）。
 - **`ls -l` 大小**＝實際內容長度；`history` 內建指令與 `~/.bash_history` 共用同一份劇本；登入落在各自家目錄；身分 = `whoami` = `id` = `echo $USER` = `/etc/passwd` 條目，全部一致。
 
 ### 4. SSH 協定層反指紋
@@ -76,23 +76,24 @@ paramiko 預設提供的演算法清單（含 `3des-cbc`、`diffie-hellman-group
 高互動 LLM 蜜罐的核心挑戰在於：語言模型的輸出具隨機性，若無約束，同一攻擊者前後查詢、或多次連線時回應會彼此矛盾而暴露身分。本系統以**三層機制**處理三種不同範圍的一致性。
 
 ### 1. 連線內脈絡（LLM 看得到攻擊者前面的操作）
-每條 SSH 連線維護一份指令–回應歷史（`session_manager` 的 `history_pairs`，上限 20 組、單筆回應截斷 500 字元）。`ssh_server` 把它組成 `$ 指令\n回應` 的 `rich_history`，經 `prompt_builder` 置於 system prompt 之後的 user message（「Previous commands in this session:」），讓模型感知攻擊者先前的操作與系統先前的輸出，維持多步驟互動的連貫性（例如先 `cd` 再 `ls`、先看到某檔再 `cat`）。為避免 Ollama 預設 2,048 token 上下文窗截斷人設提示，明確設定 `num_ctx=8192`，並依 *Lost in the Middle* 將穩定人設置於最前、當前指令置於最後。
+每條 SSH 連線維護一份指令–回應歷史（`session_manager` 的 `history_pairs`，上限 20 組、單筆回應截斷 500 字元）。`ssh_server` 把它組成 `$ 指令\n回應` 的 `rich_history`，經 `prompt_builder` 置於 system prompt 之後的 user message，讓模型感知攻擊者先前的操作與系統先前的輸出，維持多步驟互動的連貫性（例如先 `cd` 再 `ls`、先看到某檔再 `cat`）。為避免 Ollama 預設 2,048 token 上下文窗截斷人設提示，明確設定 `num_ctx=8192`，並依 *Lost in the Middle* 將穩定人設置於最前、當前指令置於最後。此外，重連時這份歷史會先以該 IP 的既有紀錄預載（見 §4）。
 
-### 2. 跨連線的「世界一致性」（靠世界固定，而非記得攻擊者）
-系統不依賴模型「記得」攻擊者，而是讓**被觀測的世界本身固定**：
-- 確定性內容由規則引擎與 `shared/fake_fs.py` 直接回覆，每次連線完全相同。
-- 模型對唯讀檔案系統指令（ls/cat/find…）的虛構回應，以 `(指令, 目錄, 使用者)` 為鍵跨連線快取（`layer2/main.py` 的 `_dynamic_fs`，**不含 session_id 也不含 IP**）；因此同一路徑無論由哪條連線、哪個攻擊者查詢都得到相同結果，連模型臨時編造的部分也在不同連線間一致。
+### 2. 跨連線的「世界一致性」
+系統不僅依賴模型「記得」攻擊者，更讓**被觀測的世界本身一致**：
+- **確定性內容**由規則引擎與 `shared/fake_fs.py` 直接回覆，每次連線完全相同。
+- **模型虛構的唯讀結果**（ls/cat/find…）以 `(指令, 目錄, 使用者)` 為鍵跨連線快取（`layer2/main.py` 的 `_dynamic_fs`）；同一路徑無論由哪條連線、哪個攻擊者查詢都得到相同結果。
+- **攻擊者造成的可變狀態**（`echo>檔案`、`mkdir`、`useradd`、`rm`、寫 `/etc/passwd` 等）寫進共用 SQLite `fs_overlay`（`layer2/overlay.py`），跨連線、跨程序、跨重啟持久；後續 `cat`/`ls`/`grep`/`head`/`wc`／甚至 Layer1 的 `cd` 都先查覆寫層。攻擊者建立帳號後 `cat /etc/passwd` 看得到、`mkdir` 後 `cd` 進得去——消除「改了卻讀不到」的破綻。寫入套用真實權限（非 root 不能寫系統路徑、`/root` 與 `.ssh` 非擁有者讀不到）。
 
 ### 3. 跨協定一致性（SSH ↔ HTTP）
 兩個協定共享同一份誘餌資產（如 `.env`），確保攻擊者由 Web（`/.env`）取得的憑證與由 shell（`cat /var/www/html/.env`）讀到的內容相符。HTTP 端不呼叫 LLM，故兩者之間共享的是靜態誘餌而非 LLM 脈絡。
 
-### 「記錄」與「記憶」的區別
-同一來源 IP 的連線**都會被記錄**：每個 session 列都帶 `attacker_ip`，HTTP 更以 `http-<ip>` 將同 IP 請求聚合成單一 session，Dashboard 與 Geo 統計皆以 IP 分組——因此「這個 IP 連了幾次、做了什麼」查得到。但這份紀錄目前**僅用於記錄與分析，尚未在 SSH 重連時回灌給 LLM 當上下文**；模型維持一致靠的是「世界固定」，而非「記得你來過」。
+### 4. 跨連線記憶（by IP）
+同一來源 IP 的連線都會被記錄（每個 session 列帶 `attacker_ip`，HTTP 更以 `http-<ip>` 聚合）。SSH **重連時**會用該 IP 在 `commands` 表的既有指令脈絡（最近 15 筆、僅 SSH）預載回新 session 的歷史（`logger.recent_pairs_for_ip` → `session_manager.seed_history`），讓模型延續先前對話、而非每次重連都失憶。
 
 ### 限制與未來工作
-目前維持的是「狀態快照」一致性而非「可變狀態」一致性：攻擊者的破壞性／持久化操作（新增使用者、寫入檔案、植入 crontab）會被即時模擬為成功，但不會被持久化，故後續（含重連）重新讀取時不會反映該變更。可行改進：
-- **(a) 跨連線記憶**：以攻擊者 IP 為索引，重連時自 SQLite 既有 `commands` 紀錄重建對話脈絡，提供跨連線的對話連續性（資料已具備，只差回灌）。
-- **(b) 可變狀態覆寫層**：以輕量 overlay 記錄被建立／修改的檔案與帳號，後續讀取指令先查 overlay 再回落到基準檔案系統，使可變狀態也保持一致。
+- 可變狀態覆寫層涵蓋常見寫入指令（重導向、mkdir、touch、useradd、rm），但**複合指令**（`&&`/`|`/`;`）與 `cp`/`mv`/`tar` 等仍交給 LLM、不持久化。
+- 跨連線記憶以 IP 為索引；NAT/動態 IP 後的多名攻擊者會被視為同一人（蜜罐情境多可接受）。
+- `useradd` 並發配號未加鎖（蜜罐並發低，SQLite 已序列化寫入）。
 
 ---
 
@@ -319,6 +320,7 @@ honeypot/
   layer2/
     main.py                # FastAPI POST /respond（規則快取 → 動態 fs 快取 → LLM）
     cache.py               # 規則快取 + 假檔案系統 + 權限模型
+    overlay.py             # 可變狀態覆寫層（攻擊者寫入/建立/刪除存入 SQLite fs_overlay）
     intent_classifier.py   # 關鍵字意圖分類
     prompt_builder.py      # Ubuntu 18.04 人設 System Prompt（嵌入 canonical 檔案系統）
     ollama_client.py       # Ollama HTTP client，支援串流
@@ -327,7 +329,7 @@ honeypot/
     stats_api.py           # 唯讀 FastAPI + WebSocket /ws/live（CORS 可設定）
     report_generator.py    # LLM Markdown 報告生成 + 單一 worker 佇列
     frontend/              # React + Vite → Vercel
-  tests/                   # 101 個測試（一致性、權限、提權、SSH 指紋、HTTP、報告佇列…）
+  tests/                   # 137 個測試（一致性、權限、提權、覆寫層、跨連線記憶、SSH 指紋…）
   honeypot.db              # 共用 SQLite 資料庫
   .env                     # 所有設定
   scripts/
@@ -410,7 +412,7 @@ cd honeypot
 .venv/bin/pytest tests/ -v
 ```
 
-**101 個測試**，涵蓋 SQLite Schema、Logger、Session Manager、規則快取、意圖分類器、Prompt Builder、FastAPI 端點、Stats API，以及本次新增的擬真度測試：跨層誘餌一致性、權限模型、提權狀態、`head/tail/wc` 與 `cat` 一致、SSH 演算法指紋與三型別 host key、HTTP 同 IP 聚合與帳密/SQL 收割、報告佇列、CORS 設定。不需要 Ollama 在跑，也不需要任何外部服務。
+**137 個測試**，涵蓋 SQLite Schema、Logger、Session Manager、規則快取、意圖分類器、Prompt Builder、FastAPI 端點、Stats API，以及擬真度測試：跨層誘餌一致性、權限模型、提權狀態、可變狀態覆寫層、跨連線記憶、`head/tail/wc/grep` 與 `cat` 一致、SSH 演算法指紋與三型別 host key、HTTP 同 IP 聚合與帳密/SQL 收割、報告佇列、CORS 設定。不需要 Ollama 在跑，也不需要任何外部服務。
 
 ---
 
@@ -419,7 +421,7 @@ cd honeypot
 > 誠實列出，方便報告討論與後續改進。
 
 - **SSH 協定層仍非 100% OpenSSH**：常見的 `nmap ssh2-enum-algos`/`ssh -vv` 看到的演算法清單已與 OpenSSH 7.6 一致，但 paramiko 終究不是 OpenSSH，極深入的時序/實作指紋分析仍可能有差異。
-- **`stat`/`grep` 與管線走 LLM**：`head/tail/wc` 已對誘餌檔確定性化，但 `stat`、`grep`、`cat … | grep …`、重導向等仍交給 LLM（`stat` 要補齊 inode/owner/mode 才不會與 `ls -l` 打架，成本較高）。
+- **`stat` 與管線走 LLM**：`head/tail/wc/grep`(單檔)已對誘餌檔確定性化,但 `stat` 與 `cat … | grep …` 等管線仍交給 LLM(`stat` 要補齊 inode/owner/mode 才不會與 `ls -l` 打架,成本較高)。
 - **互動式終端細節**：方向鍵/Tab 補全會被當字元塞進指令（非真正的 readline）。
 - **Stats API 對外部署**：目前僅 `CORS_ORIGINS` 可鎖定來源，尚無認證與報告端點的 rate-limit；正式對外建議再補。
 
