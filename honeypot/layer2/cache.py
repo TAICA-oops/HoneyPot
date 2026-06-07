@@ -1,5 +1,6 @@
 import re
 from shared import fake_fs
+from layer2 import overlay
 
 _ETC_PASSWD = fake_fs.ETC_PASSWD
 _ETC_HOSTS = fake_fs.ETC_HOSTS
@@ -118,6 +119,12 @@ class CacheHandler:
                history: list[str] | None = None, attacker_ip: str = "") -> str | None:
         cmd = command.strip()
 
+        # 寫入類指令（echo>檔案、mkdir、touch、useradd、rm…）：更新可變狀態覆寫層,
+        # 讓之後（含重連/跨程序）的讀取都反映這些變更。
+        written = overlay.apply_write(cmd, current_dir, user)
+        if written is not None:
+            return written
+
         # 一次性 sudo：sudo -l 給確定性授權清單;其餘讀取類指令以 root 身分執行,
         # 確保「sudo cat /etc/shadow」與提權後「cat /etc/shadow」拿到同一份內容。
         if cmd == "sudo -l" or cmd.startswith("sudo -l "):
@@ -175,21 +182,30 @@ class CacheHandler:
             target = fake_fs.normalize_path(current_dir, raw_target or ".")
             shown = raw_target or target
 
-            known_dir = target in _LS_MAP or target in fake_fs.FAKE_DIRS
+            if overlay.is_deleted(target):
+                return f"ls: cannot access '{shown}': No such file or directory\n"
+
+            extra = overlay.list_extra(target)
+            deleted = overlay.deleted_names(target)
+            known_dir = target in _LS_MAP or target in fake_fs.FAKE_DIRS or overlay.is_dir(target)
             known = known_dir or target in fake_fs.FAKE_FILES
 
             if has_long:
                 long_out = _LS_LONG_MAP.get(target)
                 if long_out is not None:
-                    return long_out
-                # 存在但沒有靜態長格式 → 交給 LLM；完全不存在 → 真實錯誤
+                    return self._merge_long(long_out, extra, deleted)
+                if extra or overlay.is_dir(target):
+                    return self._merge_long("", extra, deleted)
                 if known:
                     return None
                 return f"ls: cannot access '{shown}': No such file or directory\n"
 
             listing = _LS_MAP.get(target)
-            if listing is not None:
-                return listing
+            if listing is not None or extra or deleted or overlay.is_dir(target):
+                base_names = listing.split() if listing else []
+                names = [n for n in base_names if n not in deleted]
+                names += [n for n in extra if n not in names]
+                return ("  ".join(sorted(names)) + "\n") if names else "\n"
             if known:
                 return None  # 存在但沒有靜態清單 → 交給 LLM（會被 _dynamic_fs 快取）
             return f"ls: cannot access '{shown}': No such file or directory\n"
@@ -254,13 +270,51 @@ class CacheHandler:
         "/home/admin/.bash_history": fake_fs.ADMIN_BASH_HISTORY,
     }
 
-    def _cat(self, path: str, user: str) -> str | None:
-        content = self._FILE_CONTENT.get(path)
-        if content is None:
-            return None  # cache miss → LLM handles unknown paths
+    def _resolve(self, path: str, user: str) -> tuple[str, str | None]:
+        """解析檔案內容,覆寫層優先。回傳 (status, content)；
+        status ∈ {'ok','deleted','denied','unknown'}。"""
+        if overlay.is_deleted(path):
+            return "deleted", None
+        ov = overlay.read_file(path)
+        if ov is not None:
+            if not fake_fs.can_read(path, user):
+                return "denied", None
+            return "ok", ov
+        base = self._FILE_CONTENT.get(path)
+        if base is None:
+            return "unknown", None
         if not fake_fs.can_read(path, user):
+            return "denied", None
+        return "ok", base
+
+    def _merge_long(self, base_long: str, extra: list[str], deleted: set[str]) -> str:
+        lines = []
+        for ln in base_long.splitlines():
+            name = ln.rsplit(" ", 1)[-1]
+            if name in deleted:
+                continue
+            lines.append(ln)
+            extra = [e for e in extra if e != name]
+        date = fake_fs.now_utc().strftime("%b %e %H:%M")
+        for name in extra:
+            full = (name if name.startswith("/") else name)
+            content = overlay.read_file(full)
+            if overlay.is_dir(full):
+                lines.append(f"drwxr-xr-x 2 root root 4096 {date} {name}")
+            else:
+                size = len(content.encode()) if content else 0
+                lines.append(f"-rw-r--r-- 1 root root {size:>5} {date} {name}")
+        return ("\n".join(lines) + "\n") if lines else "total 0\n"
+
+    def _cat(self, path: str, user: str) -> str | None:
+        status, content = self._resolve(path, user)
+        if status == "ok":
+            return content
+        if status == "deleted":
+            return f"cat: {path}: No such file or directory\n"
+        if status == "denied":
             return f"cat: {path}: Permission denied\n"
-        return content
+        return None  # unknown → LLM
 
     def _head_tail(self, cmd: str, current_dir: str, user: str) -> str | None:
         parts = cmd.split()
@@ -283,11 +337,14 @@ class CacheHandler:
         if file_tok is None:
             return None              # 從 stdin 讀 → 交給 LLM
         path = fake_fs.normalize_path(current_dir, file_tok)
-        if path not in self._FILE_CONTENT:
-            return None              # 未知檔 → 交給 LLM
-        if not fake_fs.can_read(path, user):
+        status, content = self._resolve(path, user)
+        if status == "unknown":
+            return None
+        if status == "deleted":
+            return f"{kind}: cannot open '{path}' for reading: No such file or directory\n"
+        if status == "denied":
             return f"{kind}: cannot open '{path}' for reading: Permission denied\n"
-        lines = self._FILE_CONTENT[path].splitlines()
+        lines = content.splitlines()
         chosen = lines[:n] if kind == "head" else lines[-n:]
         return ("\n".join(chosen) + "\n") if chosen else ""
 
@@ -302,11 +359,13 @@ class CacheHandler:
         if file_tok is None:
             return None
         path = fake_fs.normalize_path(current_dir, file_tok)
-        if path not in self._FILE_CONTENT:
+        status, content = self._resolve(path, user)
+        if status == "unknown":
             return None
-        if not fake_fs.can_read(path, user):
+        if status == "deleted":
+            return f"wc: {path}: No such file or directory\n"
+        if status == "denied":
             return f"wc: {path}: Permission denied\n"
-        content = self._FILE_CONTENT[path]
         nb, nl, nw = len(content.encode()), content.count("\n"), len(content.split())
         if mode in ("c", "m"):
             return f"{nb} {path}\n"

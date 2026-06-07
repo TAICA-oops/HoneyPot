@@ -6,6 +6,16 @@ FAKE_DIRS = fake_fs.FAKE_DIRS
 _SHELL_BINS = {"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/bin/zsh"}
 
 
+def _overlay_is_dir(path: str) -> bool:
+    """攻擊者用 mkdir 建立的目錄（存在共用 SQLite 覆寫層）也應可 cd 進去。
+    防禦性：覆寫層／DB 不可用時回 False,絕不讓 cd 崩潰。"""
+    try:
+        from layer2 import overlay
+        return overlay.is_dir(path)
+    except Exception:
+        return False
+
+
 def detect_escalation(command: str) -> str | None:
     """判斷指令是否會開啟「持續的」提權 shell。
 
@@ -89,7 +99,7 @@ class SessionManager:
         else:
             target = fake_fs.normalize_path(current, parts[1])
 
-        if target in FAKE_DIRS:
+        if target in FAKE_DIRS or _overlay_is_dir(target):
             self._sessions[session_id]["current_dir"] = target
             return target, ""
         if target in fake_fs.FAKE_FILES:
