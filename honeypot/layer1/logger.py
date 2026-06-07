@@ -83,12 +83,11 @@ class Logger:
                FROM commands c JOIN sessions s ON c.session_id = s.session_id
                WHERE s.attacker_ip = ? AND s.protocol = 'ssh'
                  AND (? IS NULL OR c.session_id != ?)
-               ORDER BY c.timestamp, c.id""",
-            (ip, exclude_session, exclude_session),
+               ORDER BY c.timestamp DESC, c.id DESC LIMIT ?""",
+            (ip, exclude_session, exclude_session, limit),
         ).fetchall()
         conn.close()
-        pairs = [(r[0], r[1] or "") for r in rows]
-        return pairs[-limit:]
+        return [(r[0], r[1] or "") for r in reversed(rows)]   # 取最近 N 筆,再轉回時間序
 
     def session_end(self, session_id: str, threat_level: str) -> None:
         conn = get_conn(self.db_path)

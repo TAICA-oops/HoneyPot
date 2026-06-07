@@ -107,3 +107,76 @@ def test_mkdir_then_cd_into_overlay_dir(ch, tmp_db):
     new_dir, err = mgr.handle_cd("s", "cd /tmp/loot")
     assert err == ""
     assert new_dir == "/tmp/loot"
+
+
+# ── 寫入權限模型（Codex #1/#2）────────────────────────────────────────────────
+def test_non_root_cannot_write_etc_passwd(ch):
+    out = ch.handle("echo 'x:x:0:0::/root:/bin/bash' >> /etc/passwd", "/home/deploy", "deploy")
+    assert "Permission denied" in out
+    assert "x:x:0:0" not in ch.handle("cat /etc/passwd", "/", "root")
+
+
+def test_sudo_write_to_etc_passwd_allowed(ch):
+    ch.handle('sudo bash -c "echo \'bd:x:0:0::/root:/bin/bash\' >> /etc/passwd"', "/home/admin", "admin")
+    assert "bd:x:0:0" in ch.handle("cat /etc/passwd", "/", "root")
+
+
+def test_non_root_can_write_tmp_and_own_home(ch):
+    ch.handle("echo hi > /tmp/ok", "/tmp", "deploy")
+    assert ch.handle("cat /tmp/ok", "/tmp", "deploy") == "hi\n"
+    ch.handle("echo yo > /home/deploy/note", "/home/deploy", "deploy")
+    assert ch.handle("cat /home/deploy/note", "/home/deploy", "deploy") == "yo\n"
+
+
+def test_non_root_cannot_mkdir_in_etc(ch):
+    assert "Permission denied" in ch.handle("mkdir /etc/evil", "/etc", "deploy")
+
+
+def test_overlay_file_under_root_not_world_readable(ch):
+    ch.handle("mkdir -p /root/.ssh", "/root", "root")
+    ch.handle("echo 'ssh-rsa K attacker@kali' >> /root/.ssh/authorized_keys", "/root", "root")
+    assert "Permission denied" in ch.handle("cat /root/.ssh/authorized_keys", "/", "deploy")
+    assert "attacker@kali" in ch.handle("cat /root/.ssh/authorized_keys", "/", "root")
+
+
+# ── overlay 正確性（Codex #3/#5/#7）──────────────────────────────────────────
+def test_mkdir_p_creates_parent_dirs(ch):
+    from layer1.session_manager import SessionManager
+    ch.handle("mkdir -p /tmp/a/b/c", "/tmp", "admin")
+    mgr = SessionManager()
+    mgr.create("s", "admin", "1.1.1.1")
+    nd, err = mgr.handle_cd("s", "cd /tmp/a")
+    assert err == "" and nd == "/tmp/a"
+
+
+def test_rm_r_removes_children(ch):
+    ch.handle("mkdir -p /tmp/d", "/tmp", "admin")
+    ch.handle("echo x > /tmp/d/f", "/tmp", "admin")
+    ch.handle("rm -r /tmp/d", "/tmp", "admin")
+    assert "No such file" in ch.handle("cat /tmp/d/f", "/tmp", "admin")
+
+
+def test_rm_nonexistent_without_f_errors(ch):
+    assert "No such file" in ch.handle("rm /tmp/ghost", "/tmp", "admin")
+
+
+def test_rm_f_nonexistent_is_silent(ch):
+    assert ch.handle("rm -f /tmp/ghost", "/tmp", "admin") == ""
+
+
+def test_rm_directory_without_r_errors(ch):
+    ch.handle("mkdir /tmp/d2", "/tmp", "admin")
+    assert "Is a directory" in ch.handle("rm /tmp/d2", "/tmp", "admin")
+
+
+def test_grep_quoted_pattern_with_spaces(ch):
+    ch.handle("echo 'hello world here' > /tmp/g", "/tmp", "admin")
+    out = ch.handle("grep 'hello world' /tmp/g", "/tmp", "admin")
+    assert "hello world here" in out
+
+
+def test_ls_long_shows_overlay_file_with_correct_size(ch):
+    ch.handle("echo hello > /tmp/note", "/tmp", "admin")   # "hello\n" = 6 bytes
+    line = [l for l in ch.handle("ls -l /tmp", "/", "admin").splitlines() if l.endswith(" note")][0]
+    assert line.startswith("-")          # 一般檔,不是目錄
+    assert line.split()[4] == "6"        # 大小正確,非 0

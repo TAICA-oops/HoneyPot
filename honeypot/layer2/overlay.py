@@ -52,49 +52,75 @@ def _set(path: str, kind: str, content: str | None = None) -> None:
         pass
 
 
-def _rows():
+def _descendants(path: str) -> list[str]:
+    """覆寫層中位於 path 之下的所有子孫路徑(供 rm -r 一併刪除)。"""
     try:
         conn = get_conn()
-        rows = conn.execute("SELECT path, kind, content FROM fs_overlay").fetchall()
+        rows = conn.execute(
+            "SELECT path FROM fs_overlay WHERE path LIKE ?", (path.rstrip("/") + "/%",)
+        ).fetchall()
         conn.close()
-        return [(r[0], r[1], r[2]) for r in rows]
+        return [r[0] for r in rows]
     except sqlite3.Error:
         return []
 
 
-# ── 讀取輔助（給 cache 用）──────────────────────────────────────────────────
+def _children_rows(dir_path: str):
+    """直接位於 dir_path 底下的覆寫列(以 LIKE 前綴查詢,再過濾直接子項)。"""
+    d = dir_path.rstrip("/") or ""
+    try:
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT path, kind FROM fs_overlay WHERE path LIKE ?", (d + "/%",)
+        ).fetchall()
+        conn.close()
+    except sqlite3.Error:
+        return []
+    out = []
+    for p, kind in rows:
+        if _parent(p) == (d or "/"):
+            out.append((p, kind))
+    return out
+
+
+# ── 讀取輔助（給 cache 用,皆為針對性查詢）─────────────────────────────────────
+def lookup(path: str) -> tuple[str, str | None] | None:
+    """回傳 (kind, content) 或 None(覆寫層無此路徑)。"""
+    try:
+        conn = get_conn()
+        row = conn.execute(
+            "SELECT kind, content FROM fs_overlay WHERE path=?", (path,)
+        ).fetchone()
+        conn.close()
+        return (row[0], row[1]) if row else None
+    except sqlite3.Error:
+        return None
+
+
 def read_file(path: str) -> str | None:
-    for p, kind, content in _rows():
-        if p == path:
-            return content if kind == "file" else None
-    return None
+    row = lookup(path)
+    return row[1] if row and row[0] == "file" else None
 
 
 def is_deleted(path: str) -> bool:
-    return any(p == path and kind == "deleted" for p, kind, _ in _rows())
+    row = lookup(path)
+    return bool(row) and row[0] == "deleted"
 
 
 def is_dir(path: str) -> bool:
-    return any(p == path and kind == "dir" for p, kind, _ in _rows())
+    row = lookup(path)
+    return bool(row) and row[0] == "dir"
 
 
 def list_extra(dir_path: str) -> list[str]:
     """覆寫層中直接位於 dir_path 底下、未被刪除的項目名稱。"""
-    names = []
-    for p, kind, _ in _rows():
-        if kind == "deleted":
-            continue
-        if _parent(p) == dir_path.rstrip("/") or _parent(p) == (dir_path or "/"):
-            names.append(p.rstrip("/").rsplit("/", 1)[-1])
-    return names
+    return [p.rstrip("/").rsplit("/", 1)[-1]
+            for p, kind in _children_rows(dir_path) if kind != "deleted"]
 
 
 def deleted_names(dir_path: str) -> set[str]:
-    out = set()
-    for p, kind, _ in _rows():
-        if kind == "deleted" and _parent(p) == (dir_path.rstrip("/") or "/"):
-            out.add(p.rstrip("/").rsplit("/", 1)[-1])
-    return out
+    return {p.rstrip("/").rsplit("/", 1)[-1]
+            for p, kind in _children_rows(dir_path) if kind == "deleted"}
 
 
 # ── 寫入偵測 ────────────────────────────────────────────────────────────────
@@ -151,31 +177,64 @@ def apply_write(command: str, current_dir: str, user: str) -> str | None:
         return None
 
 
+def _mkdirs(path: str, parents: bool) -> None:
+    """建立目錄;parents=True 時連同所有上層目錄一起建立(mkdir -p)。"""
+    if parents:
+        parts = path.strip("/").split("/")
+        acc = ""
+        for seg in parts:
+            acc = acc + "/" + seg
+            if not is_dir(acc):
+                _set(acc, "dir")
+    else:
+        _set(path, "dir")
+
+
 def _apply_write(command: str, current_dir: str, user: str) -> str | None:
     cmd = _unwrap(command)
+    # 經 sudo 提權者以 root 身分執行寫入(NOPASSWD),否則以原使用者身分
+    wuser = "root" if command.strip().startswith("sudo ") else user
 
-    # rm
+    # rm [-rf] PATH...
     m = re.match(r"^rm\b(.*)$", cmd)
     if m:
         toks = _tokens(m.group(1))
+        flags = "".join(f[1:] for f in toks if f.startswith("-"))
+        recursive, force = ("r" in flags or "R" in flags), ("f" in flags)
         targets = [t for t in toks if not t.startswith("-")]
         if any(t in ("/", "/*") for t in targets):
             return _RM_FAILSAFE
         if not targets:
             return None
         for t in targets:
-            _set(_norm(current_dir, t), "deleted")
+            path = _norm(current_dir, t)
+            if not fake_fs.can_write(path, wuser):
+                return f"rm: cannot remove '{t}': Permission denied\n"
+            existing_dir = is_dir(path) or path in fake_fs.FAKE_DIRS
+            existing_file = (read_file(path) is not None) or path in fake_fs.FAKE_FILES
+            if existing_dir and not recursive:
+                return f"rm: cannot remove '{t}': Is a directory\n"
+            if not existing_dir and not existing_file and not force:
+                return f"rm: cannot remove '{t}': No such file or directory\n"
+            _set(path, "deleted")
+            if recursive:                                  # 連同子項一併標記刪除
+                for p in _descendants(path):
+                    _set(p, "deleted")
         return ""
 
     # mkdir [-p] DIR...
     m = re.match(r"^mkdir\b(.*)$", cmd)
     if m:
         toks = _tokens(m.group(1))
+        parents = any(f.startswith("-") and "p" in f for f in toks)
         dirs = [t for t in toks if not t.startswith("-")]
         if not dirs:
             return None
         for d in dirs:
-            _set(_norm(current_dir, d), "dir")
+            path = _norm(current_dir, d)
+            if not fake_fs.can_write(path, wuser):
+                return f"mkdir: cannot create directory '{d}': Permission denied\n"
+            _mkdirs(path, parents)
         return ""
 
     # touch FILE...
@@ -186,11 +245,13 @@ def _apply_write(command: str, current_dir: str, user: str) -> str | None:
             return None
         for f in files:
             path = _norm(current_dir, f)
+            if not fake_fs.can_write(path, wuser):
+                return f"touch: cannot touch '{f}': Permission denied\n"
             if read_file(path) is None and not is_dir(path):
                 _set(path, "file", "")
         return ""
 
-    # useradd / adduser
+    # useradd / adduser（需 root）
     m = re.match(r"^(?:useradd|adduser)\b(.*)$", cmd)
     if m:
         toks = _tokens(m.group(1))
@@ -213,6 +274,9 @@ def _apply_write(command: str, current_dir: str, user: str) -> str | None:
             i += 1
         if not name:
             return None
+        if wuser != "root":
+            return ("useradd: Permission denied.\n"
+                    "useradd: cannot lock /etc/passwd; try again later.\n")
         uid = uid or _next_uid()
         line = f"{name}:x:{uid}:{uid}::/home/{name}:{shell}"
         cur = _current_passwd()
@@ -234,6 +298,8 @@ def _apply_write(command: str, current_dir: str, user: str) -> str | None:
             path = _norm(current_dir, toks[i + 1])
             if path.startswith("/dev/"):
                 return None      # 丟棄輸出(/dev/null 等)→ 交給 LLM,不建檔
+            if not fake_fs.can_write(path, wuser):
+                return f"bash: {toks[i + 1]}: Permission denied\n"
             left = toks[:i]
             content = _echo_content(left) if left and left[0] == "echo" else ""
             if t == ">>":

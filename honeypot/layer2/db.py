@@ -55,6 +55,7 @@ def init_db(db_path: str | None = None) -> None:
         PRAGMA journal_mode=WAL;
         PRAGMA busy_timeout=5000;
         CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_time);
+        CREATE INDEX IF NOT EXISTS idx_sessions_ip ON sessions(attacker_ip, protocol);
         CREATE INDEX IF NOT EXISTS idx_commands_session ON commands(session_id, timestamp);
         CREATE INDEX IF NOT EXISTS idx_commands_intent ON commands(intent);
         CREATE INDEX IF NOT EXISTS idx_http_session ON http_requests(session_id, timestamp);

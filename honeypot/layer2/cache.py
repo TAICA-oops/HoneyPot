@@ -193,9 +193,9 @@ class CacheHandler:
             if has_long:
                 long_out = _LS_LONG_MAP.get(target)
                 if long_out is not None:
-                    return self._merge_long(long_out, extra, deleted)
+                    return self._merge_long(long_out, extra, deleted, target)
                 if extra or overlay.is_dir(target):
-                    return self._merge_long("", extra, deleted)
+                    return self._merge_long("", extra, deleted, target)
                 if known:
                     return None
                 return f"ls: cannot access '{shown}': No such file or directory\n"
@@ -276,13 +276,15 @@ class CacheHandler:
     def _resolve(self, path: str, user: str) -> tuple[str, str | None]:
         """解析檔案內容,覆寫層優先。回傳 (status, content)；
         status ∈ {'ok','deleted','denied','unknown'}。"""
-        if overlay.is_deleted(path):
-            return "deleted", None
-        ov = overlay.read_file(path)
-        if ov is not None:
-            if not fake_fs.can_read(path, user):
-                return "denied", None
-            return "ok", ov
+        row = overlay.lookup(path)                 # 單次查詢取代 is_deleted+read_file
+        if row is not None:
+            kind, content = row
+            if kind == "deleted":
+                return "deleted", None
+            if kind == "file":
+                if not fake_fs.can_read(path, user):
+                    return "denied", None
+                return "ok", content
         base = self._FILE_CONTENT.get(path)
         if base is None:
             return "unknown", None
@@ -290,7 +292,7 @@ class CacheHandler:
             return "denied", None
         return "ok", base
 
-    def _merge_long(self, base_long: str, extra: list[str], deleted: set[str]) -> str:
+    def _merge_long(self, base_long: str, extra: list[str], deleted: set[str], dir_path: str) -> str:
         lines = []
         for ln in base_long.splitlines():
             name = ln.rsplit(" ", 1)[-1]
@@ -299,12 +301,13 @@ class CacheHandler:
             lines.append(ln)
             extra = [e for e in extra if e != name]
         date = fake_fs.now_utc().strftime("%b %e %H:%M")
+        base = dir_path.rstrip("/")
         for name in extra:
-            full = (name if name.startswith("/") else name)
-            content = overlay.read_file(full)
+            full = f"{base}/{name}"
             if overlay.is_dir(full):
                 lines.append(f"drwxr-xr-x 2 root root 4096 {date} {name}")
             else:
+                content = overlay.read_file(full)
                 size = len(content.encode()) if content else 0
                 lines.append(f"-rw-r--r-- 1 root root {size:>5} {date} {name}")
         return ("\n".join(lines) + "\n") if lines else "total 0\n"
@@ -352,7 +355,11 @@ class CacheHandler:
         return ("\n".join(chosen) + "\n") if chosen else ""
 
     def _grep(self, cmd: str, current_dir: str, user: str) -> str | None:
-        toks = cmd.split()
+        import shlex
+        try:
+            toks = shlex.split(cmd, posix=True)   # 保留含空白的引號樣式
+        except ValueError:
+            toks = cmd.split()
         flags, positional = set(), []
         for t in toks[1:]:
             if t.startswith("-") and len(t) > 1 and not t[1:].isdigit():
