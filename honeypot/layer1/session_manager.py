@@ -89,6 +89,15 @@ class SessionManager:
             self._sessions[session_id]["history_pairs"] = h[-20:]
         self.push_history(session_id, command)
 
+    def seed_history(self, session_id: str, pairs: list[tuple[str, str]]) -> None:
+        """以先前(跨連線)的指令+回應預先填充本 session 歷史,讓 LLM 有脈絡延續性。"""
+        s = self._sessions[session_id]
+        for command, response in pairs[-20:]:
+            s["history_pairs"].append((command, (response or "")[:500]))
+            s["history"].append(command)
+        s["history_pairs"] = s["history_pairs"][-20:]
+        s["history"] = s["history"][-10:]
+
     def handle_cd(self, session_id: str, command: str) -> tuple[str, str]:
         parts = command.split(maxsplit=1)
         current = self._sessions[session_id]["current_dir"]

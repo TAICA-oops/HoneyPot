@@ -74,6 +74,22 @@ class Logger:
             "timestamp": datetime.utcnow().isoformat(),
         })
 
+    def recent_pairs_for_ip(self, ip: str, limit: int = 15,
+                            exclude_session: str | None = None) -> list[tuple[str, str]]:
+        """取得某來源 IP 先前 SSH session 的指令+回應(時間序),供重連時重建脈絡。"""
+        conn = get_conn(self.db_path)
+        rows = conn.execute(
+            """SELECT c.command, c.response
+               FROM commands c JOIN sessions s ON c.session_id = s.session_id
+               WHERE s.attacker_ip = ? AND s.protocol = 'ssh'
+                 AND (? IS NULL OR c.session_id != ?)
+               ORDER BY c.timestamp, c.id""",
+            (ip, exclude_session, exclude_session),
+        ).fetchall()
+        conn.close()
+        pairs = [(r[0], r[1] or "") for r in rows]
+        return pairs[-limit:]
+
     def session_end(self, session_id: str, threat_level: str) -> None:
         conn = get_conn(self.db_path)
         conn.execute(

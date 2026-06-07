@@ -248,6 +248,14 @@ def _handle_client(sock: socket.socket, addr: tuple, logger: Logger) -> None:
         _SESSION_MGR.create(session_id, server.username, addr[0])
         logger.session_start(session_id, "ssh", addr[0])
 
+        # 跨連線記憶：同一 IP 重連時,用先前的指令脈絡預載,讓蜜罐「記得」攻擊者
+        try:
+            prior = logger.recent_pairs_for_ip(addr[0], limit=15, exclude_session=session_id)
+            if prior:
+                _SESSION_MGR.seed_history(session_id, prior)
+        except Exception as e:
+            print(f"[ssh] could not seed history: {e}")
+
         # 非互動式 `ssh user@host 'cmd'`：執行單一指令、回傳輸出、設定退出碼後結束
         if server.exec_command is not None:
             _handle_exec(chan, session_id, server.exec_command, logger, addr[0])
